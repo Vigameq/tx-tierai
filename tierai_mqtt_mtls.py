@@ -5,7 +5,7 @@ from paho.mqtt import client as mqtt
 IOT_ENDPOINT = "a2b9h5i04yynsk-ats.iot.ap-southeast-1.amazonaws.com"
 IOT_PORT = 8883
 
-CA_FILE = "AmazonRootCA1.pem"   # use your actual file name
+CA_FILE = "AmazonRootCA.pem"   # use your actual file name
 CERT_FILE = "89782870c4795de15f0a654c417aafb0ac7f685f9e68d50801846cb38b848268-certificate.pem.crt"
 KEY_FILE = "89782870c4795de15f0a654c417aafb0ac7f685f9e68d50801846cb38b848268-private.pem.key"
 

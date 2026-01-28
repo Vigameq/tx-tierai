@@ -1,0 +1,2 @@
+IoT Core → Lambda → SiteWise → TwinMaker → Amazon Managed Grafana. 
+IoT Core → Lambda -> DynamoDB -> Bedrock (RAG Model)

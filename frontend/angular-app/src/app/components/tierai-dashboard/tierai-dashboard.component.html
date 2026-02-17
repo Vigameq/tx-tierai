@@ -1,0 +1,45 @@
+<div class="page">
+  <header class="topbar">
+    <div class="brand">
+      <h1>TierAI Command</h1>
+      <p>Telemetry intelligence cockpit</p>
+    </div>
+    <div class="device-chip">
+      <span>Device</span>
+      <input [ngModel]="deviceId()" (ngModelChange)="deviceId.set($event)" />
+    </div>
+  </header>
+
+  <section class="grid">
+    <article class="panel metrics">
+      <h2>Operations Dashboard</h2>
+      <p class="sub">Grafana embed placeholder. Wire your panel URL later.</p>
+      <div class="placeholder">
+        <div class="pulse"></div>
+        <span>Grafana panel integration point</span>
+      </div>
+    </article>
+
+    <article class="panel chat">
+      <h2>Ops Copilot</h2>
+      <div class="messages">
+        <div class="message" *ngFor="let msg of messages()" [class.user]="msg.role === 'user'">
+          <div class="meta">{{ msg.role }} | {{ msg.ts | date : 'shortTime' }}</div>
+          <div class="content">{{ msg.content }}</div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <textarea
+          [ngModel]="inputText()"
+          (ngModelChange)="inputText.set($event)"
+          placeholder="Ask: Is this device at risk? What should I check next?"
+        ></textarea>
+        <button [disabled]="!canSend()" (click)="send()">
+          <span *ngIf="!loading()">Send</span>
+          <span *ngIf="loading()">Thinking...</span>
+        </button>
+      </div>
+    </article>
+  </section>
+</div>

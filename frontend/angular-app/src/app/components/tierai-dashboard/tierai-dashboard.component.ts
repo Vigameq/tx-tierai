@@ -39,7 +39,7 @@ export class TieraiDashboardComponent {
     this.loading.set(true);
 
     this.chatService
-      .chat({ device_id: this.deviceId(), message: text })
+      .chat({ device_id: this.deviceId(), message: text, context_only: true })
       .pipe(
         catchError((err) => {
           const message = err?.error?.detail || 'Chat request failed. Check API URL and backend logs.';

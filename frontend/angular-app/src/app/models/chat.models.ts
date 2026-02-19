@@ -7,6 +7,7 @@ export interface ChatMessage {
 export interface ChatRequest {
   device_id: string;
   message: string;
+  context_only?: boolean;
 }
 
 export interface ChatResponse {

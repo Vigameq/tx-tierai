@@ -1,10 +1,10 @@
 :root {
   --bg: #08101f;
   --bg-soft: #121f35;
-  --panel: rgba(15, 29, 52, 0.82);
+  --panel: rgba(248, 252, 255, 0.92);
   --line: rgba(135, 169, 255, 0.23);
-  --text: #eaf2ff;
-  --muted: #9cb2d8;
+  --text: #10203a;
+  --muted: #567094;
   --accent: #47d7ac;
   --accent-2: #59a6ff;
 }
@@ -12,9 +12,9 @@
 .page {
   min-height: 100vh;
   background:
-    radial-gradient(circle at 80% 0%, rgba(81, 140, 255, 0.3), transparent 40%),
-    radial-gradient(circle at 20% 100%, rgba(71, 215, 172, 0.16), transparent 35%),
-    var(--bg);
+    radial-gradient(circle at 80% 0%, rgba(81, 140, 255, 0.18), transparent 40%),
+    radial-gradient(circle at 20% 100%, rgba(71, 215, 172, 0.1), transparent 35%),
+    linear-gradient(165deg, #edf3fb 0%, #dfeaf7 100%);
   color: var(--text);
   padding: 28px;
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
@@ -107,7 +107,7 @@
   height: 390px;
   overflow: auto;
   padding: 10px;
-  background: rgba(7, 18, 36, 0.78);
+  background: rgba(255, 255, 255, 0.8);
 }
 
 .message {
@@ -122,7 +122,7 @@
 
 .meta {
   font-size: 11px;
-  color: var(--muted);
+  color: #4b6488;
   margin-bottom: 4px;
 }
 
@@ -131,12 +131,14 @@
   border: 1px solid var(--line);
   padding: 10px 12px;
   border-radius: 10px;
-  background: rgba(22, 41, 72, 0.7);
+  background: #eaf3ff;
+  color: #10203a;
   line-height: 1.4;
 }
 
 .message.user .content {
-  background: linear-gradient(130deg, rgba(71, 215, 172, 0.2), rgba(89, 166, 255, 0.22));
+  background: linear-gradient(130deg, rgba(71, 215, 172, 0.24), rgba(89, 166, 255, 0.28));
+  color: #10203a;
 }
 
 .composer {
@@ -149,9 +151,9 @@
 textarea {
   height: 78px;
   resize: none;
-  background: rgba(7, 18, 36, 0.85);
+  background: rgba(255, 255, 255, 0.94);
   border: 1px solid var(--line);
-  color: var(--text);
+  color: #10203a;
   border-radius: 12px;
   padding: 10px 12px;
   font-family: inherit;

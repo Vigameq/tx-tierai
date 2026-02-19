@@ -1,0 +1,12 @@
+{
+  "name": "tx-tierai",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "start": "npm --prefix frontend/angular-app start",
+    "start:web": "npm --prefix frontend/angular-app start",
+    "start:functions": "npm --prefix functions run serve",
+    "build": "npm --prefix frontend/angular-app run build",
+    "install:all": "npm --prefix frontend/angular-app install && npm --prefix functions install"
+  }
+}

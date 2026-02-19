@@ -31,14 +31,27 @@ export class TieraiDashboardComponent {
 
   private shouldIncludeTelemetry(userText: string): boolean {
     const text = userText.toLowerCase();
-    return (
-      text.includes('last 5') ||
-      text.includes('last five') ||
-      text.includes('readings') ||
-      text.includes('raw') ||
-      text.includes('recent values') ||
-      text.includes('latest values')
-    );
+    const telemetryKeywords = [
+      'readings',
+      'raw',
+      'recent values',
+      'latest values',
+      'last 5',
+      'last five',
+      'last ',
+      'when',
+      'rose',
+      'rise',
+      'hour',
+      'minute',
+      'timeline',
+      'time series',
+      'history',
+    ];
+    const metricKeywords = ['temp', 'temperature', 'humidity', 'value', 'values'];
+    const hasTelemetryIntent = telemetryKeywords.some((k) => text.includes(k));
+    const hasMetricIntent = metricKeywords.some((k) => text.includes(k));
+    return hasTelemetryIntent && hasMetricIntent;
   }
 
   send(): void {

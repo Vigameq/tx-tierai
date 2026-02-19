@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["src/styles.css"],
+  "sourcesContent": ["@import url(\"https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap\");\n\nhtml, body {\n  margin: 0;\n  padding: 0;\n  width: 100%;\n  min-height: 100%;\n}\n\n* {\n  box-sizing: border-box;\n}\n"],
+  "mappings": ";;;AAEA;AAAM;AACJ,UAAQ;AACR,WAAS;AACT,SAAO;AACP,cAAY;AACd;AAEA;AACE,cAAY;AACd;",
+  "names": []
+}

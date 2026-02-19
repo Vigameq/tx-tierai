@@ -1,5 +1,23 @@
 {
   "functions": {
     "source": "functions"
+  },
+  "hosting": {
+    "public": "frontend/angular-app/dist/tierai-web/browser",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ],
+    "predeploy": [
+      "npm --prefix frontend/angular-app install",
+      "npm --prefix frontend/angular-app run build"
+    ]
   }
 }

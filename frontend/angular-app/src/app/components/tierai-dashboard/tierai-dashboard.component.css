@@ -136,6 +136,41 @@
   line-height: 1.4;
 }
 
+.content.structured {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.label {
+  font-size: 12px;
+  color: #4b6488;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.value {
+  font-size: 14px;
+}
+
+.chip {
+  display: inline-block;
+  margin-right: 6px;
+  margin-bottom: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(89, 166, 255, 0.22);
+  border: 1px solid rgba(89, 166, 255, 0.3);
+  font-size: 12px;
+}
+
 .message.user .content {
   background: linear-gradient(130deg, rgba(71, 215, 172, 0.24), rgba(89, 166, 255, 0.28));
   color: #10203a;

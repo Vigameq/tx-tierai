@@ -25,7 +25,31 @@
       <div class="messages">
         <div class="message" *ngFor="let msg of messages()" [class.user]="msg.role === 'user'">
           <div class="meta">{{ msg.role }} | {{ msg.ts | date : 'shortTime' }}</div>
-          <div class="content">{{ msg.content }}</div>
+          <div class="content" *ngIf="!msg.structured">{{ msg.content }}</div>
+          <div class="content structured" *ngIf="msg.structured">
+            <div class="row">
+              <span class="label">Current state</span>
+              <span class="value">{{ msg.structured.current_state }}</span>
+            </div>
+            <div class="row">
+              <span class="label">Likely issue</span>
+              <span class="value">{{ msg.structured.likely_issue }}</span>
+            </div>
+            <div class="row">
+              <span class="label">Next checks</span>
+              <span class="value">
+                <span class="chip" *ngFor="let item of msg.structured.next_checks">{{ item }}</span>
+              </span>
+            </div>
+            <div class="row">
+              <span class="label">Urgency</span>
+              <span class="value">{{ msg.structured.urgency }}</span>
+            </div>
+            <div class="row" *ngIf="msg.structured.note">
+              <span class="label">Note</span>
+              <span class="value">{{ msg.structured.note }}</span>
+            </div>
+          </div>
         </div>
       </div>
 

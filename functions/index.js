@@ -76,7 +76,8 @@ function buildPrompt(deviceId, userMessage, contextData, telemetryRows) {
     "You are TierAI Ops Assistant.",
     "Use only the provided telemetry context.",
     "If data is insufficient, explicitly state what is missing.",
-    "Return concise operational guidance with sections: current_state, likely_issue, next_checks, urgency.",
+    "Return ONLY valid JSON with keys:",
+    "{\"current_state\":\"...\",\"likely_issue\":\"...\",\"next_checks\":[\"...\"],\"urgency\":\"low|medium|high\",\"note\":\"...\"}",
     "",
     `Device ID: ${deviceId}`,
     "",
@@ -88,6 +89,16 @@ function buildPrompt(deviceId, userMessage, contextData, telemetryRows) {
     "",
     `User question: ${userMessage}`,
   ].join("\n");
+}
+
+function extractJson(text) {
+  if (!text) return null;
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    return trimmed;
+  }
+  const match = trimmed.match(/\{[\s\S]*\}/);
+  return match ? match[0] : null;
 }
 
 async function invokeBedrock(prompt) {
@@ -162,8 +173,19 @@ exports.chat = onRequest(
           return;
         }
 
+        let structuredAnswer = null;
+        try {
+          const jsonText = extractJson(answer);
+          if (jsonText) {
+            structuredAnswer = JSON.parse(jsonText);
+          }
+        } catch (err) {
+          logger.warn("Failed to parse structured JSON answer", err);
+        }
+
         res.status(200).json({
           answer,
+          structured_answer: structuredAnswer,
           device_id: deviceId,
           mode: contextOnly ? "context_only" : "context_plus_telemetry",
           context_used: contextData,

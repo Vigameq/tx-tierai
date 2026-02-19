@@ -52,7 +52,15 @@ export class TieraiDashboardComponent {
         if (!res) {
           return;
         }
-        this.messages.update((m) => [...m, { role: 'assistant', content: res.answer, ts: new Date().toISOString() }]);
+        this.messages.update((m) => [
+          ...m,
+          {
+            role: 'assistant',
+            content: res.answer,
+            structured: res.structured_answer ?? null,
+            ts: new Date().toISOString(),
+          },
+        ]);
       });
   }
 }

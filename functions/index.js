@@ -182,6 +182,17 @@ function computeDeterministicSignals(contextData) {
   };
 }
 
+function deriveCurrentState(contextData, deterministic) {
+  const tz = contextData?.requested_timezone || "UTC";
+  const use5m = deterministic?.source_window_minutes === 5;
+  const source = use5m ? contextData?.latest_5m : contextData?.latest_60m;
+  if (!source) {
+    return `No recent telemetry context available in timezone ${tz}.`;
+  }
+  const windowEndLocal = source.window_end_local || "unknown local time";
+  return `Last reading recorded at ${windowEndLocal} (${tz})`;
+}
+
 async function invokeBedrock(prompt) {
   const body = {
     anthropic_version: "bedrock-2023-05-31",
@@ -273,6 +284,7 @@ exports.chat = onRequest(
         if (!structuredAnswer || typeof structuredAnswer !== "object") {
           structuredAnswer = {};
         }
+        structuredAnswer.current_state = deriveCurrentState(contextData, deterministic);
         structuredAnswer.data_freshness = deterministic.data_freshness;
         structuredAnswer.urgency = deterministic.deterministic_urgency;
         if (!structuredAnswer.note) {

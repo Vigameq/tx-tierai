@@ -41932,6 +41932,7 @@ var TieraiDashboardComponent = class _TieraiDashboardComponent {
         ts: (/* @__PURE__ */ new Date()).toISOString()
       }
     ]);
+    this.localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     this.canSend = computed(() => this.inputText().trim().length > 0 && !this.loading());
   }
   send() {
@@ -41942,7 +41943,12 @@ var TieraiDashboardComponent = class _TieraiDashboardComponent {
     this.messages.update((m) => [...m, { role: "user", content: text, ts: (/* @__PURE__ */ new Date()).toISOString() }]);
     this.inputText.set("");
     this.loading.set(true);
-    this.chatService.chat({ device_id: this.deviceId(), message: text, context_only: true }).pipe(catchError((err) => {
+    this.chatService.chat({
+      device_id: this.deviceId(),
+      message: text,
+      context_only: true,
+      local_timezone: this.localTimezone
+    }).pipe(catchError((err) => {
       const message = err?.error?.detail || "Chat request failed. Check API URL and backend logs.";
       this.messages.update((m) => [...m, { role: "assistant", content: String(message), ts: (/* @__PURE__ */ new Date()).toISOString() }]);
       return of(null);

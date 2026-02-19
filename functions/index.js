@@ -71,6 +71,7 @@ async function getRecentTelemetry(deviceId) {
 }
 
 function buildPrompt(deviceId, userMessage, contextData, telemetryRows) {
+  const hasTelemetry = Array.isArray(telemetryRows) && telemetryRows.length > 0;
   return [
     "You are TierAI Ops Assistant.",
     "Use only the provided telemetry context.",
@@ -82,8 +83,8 @@ function buildPrompt(deviceId, userMessage, contextData, telemetryRows) {
     "Context summaries:",
     JSON.stringify(contextData, null, 2),
     "",
-    "Recent telemetry (latest 10 rows):",
-    JSON.stringify(telemetryRows.slice(-10), null, 2),
+    "Recent telemetry (optional):",
+    hasTelemetry ? JSON.stringify(telemetryRows.slice(-10), null, 2) : "Not included in this request.",
     "",
     `User question: ${userMessage}`,
   ].join("\n");
@@ -131,22 +132,22 @@ exports.chat = onRequest(
         const body = parseBody(req);
         const deviceId = body.device_id;
         const message = body.message;
+        const contextOnly = body.context_only !== false;
 
         if (!deviceId || !message || typeof message !== "string") {
           res.status(400).json({
-            detail: "Invalid request. Expected { device_id: string, message: string }.",
+            detail:
+              "Invalid request. Expected { device_id: string, message: string, context_only?: boolean }.",
           });
           return;
         }
 
         const contextData = await getLatestContextByWindow(deviceId);
-        const telemetryRows = await getRecentTelemetry(deviceId);
+        const telemetryRows = contextOnly ? [] : await getRecentTelemetry(deviceId);
+        const hasContext = Boolean(contextData.latest_5m || contextData.latest_60m);
+        const hasTelemetry = telemetryRows.length > 0;
 
-        if (
-          telemetryRows.length === 0 &&
-          !contextData.latest_5m &&
-          !contextData.latest_60m
-        ) {
+        if ((contextOnly && !hasContext) || (!contextOnly && !hasContext && !hasTelemetry)) {
           res
             .status(404)
             .json({ detail: `No telemetry/context found for device_id=${deviceId}.` });
@@ -164,6 +165,7 @@ exports.chat = onRequest(
         res.status(200).json({
           answer,
           device_id: deviceId,
+          mode: contextOnly ? "context_only" : "context_plus_telemetry",
           context_used: contextData,
         });
       } catch (error) {

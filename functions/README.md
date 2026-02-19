@@ -8,7 +8,8 @@
 ```json
 {
   "device_id": "servexl/edgeblr01",
-  "message": "Is this device at risk?"
+  "message": "Is this device at risk?",
+  "context_only": true
 }
 ```
 

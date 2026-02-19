@@ -41961,13 +41961,19 @@ var TieraiDashboardComponent = class _TieraiDashboardComponent {
       ]);
     });
   }
+  onComposerKeydown(event) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      this.send();
+    }
+  }
   static {
     this.\u0275fac = function TieraiDashboardComponent_Factory(__ngFactoryType__) {
       return new (__ngFactoryType__ || _TieraiDashboardComponent)();
     };
   }
   static {
-    this.\u0275cmp = /* @__PURE__ */ \u0275\u0275defineComponent({ type: _TieraiDashboardComponent, selectors: [["app-tierai-dashboard"]], standalone: true, features: [\u0275\u0275StandaloneFeature], decls: 31, vars: 6, consts: [[1, "page"], [1, "topbar"], [1, "brand"], [1, "device-chip"], [3, "ngModelChange", "ngModel"], [1, "grid"], [1, "panel", "metrics"], [1, "sub"], [1, "placeholder"], [1, "pulse"], [1, "panel", "chat"], [1, "messages"], ["class", "message", 3, "user", 4, "ngFor", "ngForOf"], [1, "composer"], ["placeholder", "Ask: Is this device at risk? What should I check next?", 3, "ngModelChange", "ngModel"], [3, "click", "disabled"], [4, "ngIf"], [1, "message"], [1, "meta"], ["class", "content", 4, "ngIf"], ["class", "content structured", 4, "ngIf"], [1, "content"], [1, "content", "structured"], [1, "row"], [1, "label"], [1, "value"], ["class", "chip", 4, "ngFor", "ngForOf"], ["class", "row", 4, "ngIf"], [1, "chip"]], template: function TieraiDashboardComponent_Template(rf, ctx) {
+    this.\u0275cmp = /* @__PURE__ */ \u0275\u0275defineComponent({ type: _TieraiDashboardComponent, selectors: [["app-tierai-dashboard"]], standalone: true, features: [\u0275\u0275StandaloneFeature], decls: 31, vars: 6, consts: [[1, "page"], [1, "topbar"], [1, "brand"], [1, "device-chip"], [3, "ngModelChange", "ngModel"], [1, "grid"], [1, "panel", "metrics"], [1, "sub"], [1, "placeholder"], [1, "pulse"], [1, "panel", "chat"], [1, "messages"], ["class", "message", 3, "user", 4, "ngFor", "ngForOf"], [1, "composer"], ["placeholder", "Ask: Is this device at risk? What should I check next?", 3, "ngModelChange", "keydown", "ngModel"], [3, "click", "disabled"], [4, "ngIf"], [1, "message"], [1, "meta"], ["class", "content", 4, "ngIf"], ["class", "content structured", 4, "ngIf"], [1, "content"], [1, "content", "structured"], [1, "row"], [1, "label"], [1, "value"], ["class", "chip", 4, "ngFor", "ngForOf"], ["class", "row", 4, "ngIf"], [1, "chip"]], template: function TieraiDashboardComponent_Template(rf, ctx) {
       if (rf & 1) {
         \u0275\u0275elementStart(0, "div", 0)(1, "header", 1)(2, "div", 2)(3, "h1");
         \u0275\u0275text(4, "TierAI Command");
@@ -42003,6 +42009,8 @@ var TieraiDashboardComponent = class _TieraiDashboardComponent {
         \u0275\u0275elementStart(26, "div", 13)(27, "textarea", 14);
         \u0275\u0275listener("ngModelChange", function TieraiDashboardComponent_Template_textarea_ngModelChange_27_listener($event) {
           return ctx.inputText.set($event);
+        })("keydown", function TieraiDashboardComponent_Template_textarea_keydown_27_listener($event) {
+          return ctx.onComposerKeydown($event);
         });
         \u0275\u0275elementEnd();
         \u0275\u0275elementStart(28, "button", 15);

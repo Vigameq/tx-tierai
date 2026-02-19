@@ -28,5 +28,6 @@ export interface StructuredAnswer {
   next_checks?: string[];
   urgency?: 'low' | 'medium' | 'high' | string;
   data_freshness?: 'fresh_5m' | 'stale_5m' | 'no_context' | string;
+  last_positive_slope_local?: string | null;
   note?: string;
 }

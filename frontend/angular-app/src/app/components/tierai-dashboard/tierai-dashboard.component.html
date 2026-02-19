@@ -49,6 +49,10 @@
               <span class="label">Data freshness</span>
               <span class="value">{{ msg.structured.data_freshness }}</span>
             </div>
+            <div class="row" *ngIf="msg.structured.last_positive_slope_local">
+              <span class="label">Last temp rise</span>
+              <span class="value">{{ msg.structured.last_positive_slope_local }}</span>
+            </div>
             <div class="row" *ngIf="msg.structured.note">
               <span class="label">Note</span>
               <span class="value">{{ msg.structured.note }}</span>

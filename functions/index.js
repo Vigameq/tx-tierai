@@ -127,6 +127,53 @@ function formatEpochSecondsInTimezone(epochSeconds, timeZone) {
   }
 }
 
+function extractTempAndTs(row) {
+  if (!row || typeof row !== "object") {
+    return { ts: null, temp: null };
+  }
+  const ts = n(row.ts);
+  let temp = null;
+  if (row.temp !== undefined) {
+    temp = Number(row.temp);
+  } else if (row.payload && row.payload.temp !== undefined) {
+    temp = Number(row.payload.temp);
+  }
+  if (!Number.isFinite(temp)) {
+    temp = null;
+  }
+  return { ts, temp };
+}
+
+function computeLastPositiveSlope(telemetryRows, timeZone) {
+  if (!Array.isArray(telemetryRows) || telemetryRows.length < 2) {
+    return { last_positive_slope_ts: null, last_positive_slope_local: null };
+  }
+
+  let lastPositiveTs = null;
+  let lastPositiveDelta = null;
+
+  for (let i = 1; i < telemetryRows.length; i += 1) {
+    const prev = extractTempAndTs(telemetryRows[i - 1]);
+    const curr = extractTempAndTs(telemetryRows[i]);
+    if (!prev.ts || !curr.ts || prev.temp === null || curr.temp === null) {
+      continue;
+    }
+    const delta = curr.temp - prev.temp;
+    if (delta > 0) {
+      lastPositiveTs = curr.ts;
+      lastPositiveDelta = Number(delta.toFixed(4));
+    }
+  }
+
+  return {
+    last_positive_slope_ts: lastPositiveTs,
+    last_positive_slope_delta: lastPositiveDelta,
+    last_positive_slope_local: lastPositiveTs
+      ? formatEpochSecondsInTimezone(lastPositiveTs, timeZone || "UTC")
+      : null,
+  };
+}
+
 function enrichContextWithTimezone(contextData, timeZone) {
   const tz = timeZone || "UTC";
   const clone = {
@@ -255,6 +302,7 @@ exports.chat = onRequest(
         const hasContext = Boolean(contextData.latest_5m || contextData.latest_60m);
         const hasTelemetry = telemetryRows.length > 0;
         const deterministic = computeDeterministicSignals(contextData);
+        const slopeInfo = computeLastPositiveSlope(telemetryRows, localTimezone);
 
         if ((contextOnly && !hasContext) || (!contextOnly && !hasContext && !hasTelemetry)) {
           res
@@ -287,6 +335,8 @@ exports.chat = onRequest(
         structuredAnswer.current_state = deriveCurrentState(contextData, deterministic);
         structuredAnswer.data_freshness = deterministic.data_freshness;
         structuredAnswer.urgency = deterministic.deterministic_urgency;
+        structuredAnswer.last_positive_slope_local =
+          slopeInfo.last_positive_slope_local || null;
         if (!structuredAnswer.note) {
           if (deterministic.data_freshness === "stale_5m") {
             structuredAnswer.note = "No usable 5-minute telemetry; guidance is based on 60-minute context.";
@@ -300,7 +350,10 @@ exports.chat = onRequest(
           structured_answer: structuredAnswer,
           device_id: deviceId,
           mode: contextOnly ? "context_only" : "context_plus_telemetry",
-          deterministic,
+          deterministic: {
+            ...deterministic,
+            ...slopeInfo,
+          },
           context_used: contextData,
         });
       } catch (error) {

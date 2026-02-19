@@ -63,4 +63,11 @@ export class TieraiDashboardComponent {
         ]);
       });
   }
+
+  onComposerKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      this.send();
+    }
+  }
 }

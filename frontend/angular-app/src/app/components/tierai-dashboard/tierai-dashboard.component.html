@@ -61,6 +61,7 @@
         <textarea
           [ngModel]="inputText()"
           (ngModelChange)="inputText.set($event)"
+          (keydown)="onComposerKeydown($event)"
           placeholder="Ask: Is this device at risk? What should I check next?"
         ></textarea>
         <button [disabled]="!canSend()" (click)="send()">

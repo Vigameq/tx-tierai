@@ -9,6 +9,7 @@ export interface ChatRequest {
   device_id: string;
   message: string;
   context_only?: boolean;
+  local_timezone?: string;
 }
 
 export interface ChatResponse {

@@ -25,6 +25,7 @@ export class TieraiDashboardComponent {
       ts: new Date().toISOString(),
     },
   ]);
+  readonly localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
   readonly canSend = computed(() => this.inputText().trim().length > 0 && !this.loading());
 
@@ -39,7 +40,12 @@ export class TieraiDashboardComponent {
     this.loading.set(true);
 
     this.chatService
-      .chat({ device_id: this.deviceId(), message: text, context_only: true })
+      .chat({
+        device_id: this.deviceId(),
+        message: text,
+        context_only: true,
+        local_timezone: this.localTimezone,
+      })
       .pipe(
         catchError((err) => {
           const message = err?.error?.detail || 'Chat request failed. Check API URL and backend logs.';

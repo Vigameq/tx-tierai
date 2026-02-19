@@ -75,6 +75,7 @@ function buildPrompt(deviceId, userMessage, contextData, telemetryRows) {
   return [
     "You are TierAI Ops Assistant.",
     "Use only the provided telemetry context.",
+    `All time references in your answer must be in timezone: ${contextData?.requested_timezone || "UTC"}.`,
     "If data is insufficient, explicitly state what is missing.",
     "Return ONLY valid JSON with keys:",
     "{\"current_state\":\"...\",\"likely_issue\":\"...\",\"next_checks\":[\"...\"],\"urgency\":\"low|medium|high\",\"data_freshness\":\"fresh_5m|stale_5m|no_context\",\"note\":\"...\"}",
@@ -104,6 +105,47 @@ function extractJson(text) {
 function n(value) {
   const num = Number(value);
   return Number.isFinite(num) ? num : 0;
+}
+
+function formatEpochSecondsInTimezone(epochSeconds, timeZone) {
+  const ms = n(epochSeconds) * 1000;
+  if (!ms) return null;
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: timeZone || "UTC",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+      timeZoneName: "short",
+    }).format(new Date(ms));
+  } catch {
+    return new Date(ms).toISOString();
+  }
+}
+
+function enrichContextWithTimezone(contextData, timeZone) {
+  const tz = timeZone || "UTC";
+  const clone = {
+    ...contextData,
+    requested_timezone: tz,
+  };
+  if (clone.latest_5m) {
+    clone.latest_5m = {
+      ...clone.latest_5m,
+      window_end_local: formatEpochSecondsInTimezone(clone.latest_5m.window_end_ts, tz),
+    };
+  }
+  if (clone.latest_60m) {
+    clone.latest_60m = {
+      ...clone.latest_60m,
+      window_end_local: formatEpochSecondsInTimezone(clone.latest_60m.window_end_ts, tz),
+    };
+  }
+  return clone;
 }
 
 function computeDeterministicSignals(contextData) {
@@ -183,16 +225,21 @@ exports.chat = onRequest(
         const deviceId = body.device_id;
         const message = body.message;
         const contextOnly = body.context_only !== false;
+        const localTimezone =
+          typeof body.local_timezone === "string" && body.local_timezone.trim()
+            ? body.local_timezone.trim()
+            : "UTC";
 
         if (!deviceId || !message || typeof message !== "string") {
           res.status(400).json({
             detail:
-              "Invalid request. Expected { device_id: string, message: string, context_only?: boolean }.",
+              "Invalid request. Expected { device_id: string, message: string, context_only?: boolean, local_timezone?: string }.",
           });
           return;
         }
 
-        const contextData = await getLatestContextByWindow(deviceId);
+        const baseContextData = await getLatestContextByWindow(deviceId);
+        const contextData = enrichContextWithTimezone(baseContextData, localTimezone);
         const telemetryRows = contextOnly ? [] : await getRecentTelemetry(deviceId);
         const hasContext = Boolean(contextData.latest_5m || contextData.latest_60m);
         const hasTelemetry = telemetryRows.length > 0;

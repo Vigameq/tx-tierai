@@ -29,6 +29,18 @@ export class TieraiDashboardComponent {
 
   readonly canSend = computed(() => this.inputText().trim().length > 0 && !this.loading());
 
+  private shouldIncludeTelemetry(userText: string): boolean {
+    const text = userText.toLowerCase();
+    return (
+      text.includes('last 5') ||
+      text.includes('last five') ||
+      text.includes('readings') ||
+      text.includes('raw') ||
+      text.includes('recent values') ||
+      text.includes('latest values')
+    );
+  }
+
   send(): void {
     const text = this.inputText().trim();
     if (!text || this.loading()) {
@@ -39,11 +51,13 @@ export class TieraiDashboardComponent {
     this.inputText.set('');
     this.loading.set(true);
 
+    const includeTelemetry = this.shouldIncludeTelemetry(text);
+
     this.chatService
       .chat({
         device_id: this.deviceId(),
         message: text,
-        context_only: true,
+        context_only: !includeTelemetry,
         local_timezone: this.localTimezone,
       })
       .pipe(

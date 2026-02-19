@@ -45,6 +45,10 @@
               <span class="label">Urgency</span>
               <span class="value">{{ msg.structured.urgency }}</span>
             </div>
+            <div class="row" *ngIf="msg.structured.data_freshness">
+              <span class="label">Data freshness</span>
+              <span class="value">{{ msg.structured.data_freshness }}</span>
+            </div>
             <div class="row" *ngIf="msg.structured.note">
               <span class="label">Note</span>
               <span class="value">{{ msg.structured.note }}</span>

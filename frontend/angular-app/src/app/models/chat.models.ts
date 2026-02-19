@@ -26,5 +26,6 @@ export interface StructuredAnswer {
   likely_issue?: string;
   next_checks?: string[];
   urgency?: 'low' | 'medium' | 'high' | string;
+  data_freshness?: 'fresh_5m' | 'stale_5m' | 'no_context' | string;
   note?: string;
 }

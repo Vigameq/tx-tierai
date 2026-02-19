@@ -77,7 +77,7 @@ function buildPrompt(deviceId, userMessage, contextData, telemetryRows) {
     "Use only the provided telemetry context.",
     "If data is insufficient, explicitly state what is missing.",
     "Return ONLY valid JSON with keys:",
-    "{\"current_state\":\"...\",\"likely_issue\":\"...\",\"next_checks\":[\"...\"],\"urgency\":\"low|medium|high\",\"note\":\"...\"}",
+    "{\"current_state\":\"...\",\"likely_issue\":\"...\",\"next_checks\":[\"...\"],\"urgency\":\"low|medium|high\",\"data_freshness\":\"fresh_5m|stale_5m|no_context\",\"note\":\"...\"}",
     "",
     `Device ID: ${deviceId}`,
     "",
@@ -99,6 +99,45 @@ function extractJson(text) {
   }
   const match = trimmed.match(/\{[\s\S]*\}/);
   return match ? match[0] : null;
+}
+
+function n(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function computeDeterministicSignals(contextData) {
+  const latest5m = contextData?.latest_5m || null;
+  const latest60m = contextData?.latest_60m || null;
+
+  const sample5 = n(latest5m?.sample_count);
+  const has5m = sample5 > 0;
+  const chosen = has5m ? latest5m : latest60m;
+
+  const hasAnyContext = Boolean(latest5m || latest60m);
+  const dataFreshness = has5m
+    ? "fresh_5m"
+    : hasAnyContext
+      ? "stale_5m"
+      : "no_context";
+
+  const breachTemp = Boolean(chosen?.breach_temp);
+  const breachHumidity = Boolean(chosen?.breach_humidity);
+
+  let score = 0;
+  if (breachTemp) score += 2;
+  if (breachHumidity) score += 1;
+  if (dataFreshness === "stale_5m") score += 1;
+  if (dataFreshness === "no_context") score += 2;
+
+  const deterministicUrgency = score >= 4 ? "high" : score >= 2 ? "medium" : "low";
+  const sourceWindowMinutes = has5m ? 5 : latest60m ? 60 : null;
+
+  return {
+    data_freshness: dataFreshness,
+    deterministic_urgency: deterministicUrgency,
+    source_window_minutes: sourceWindowMinutes,
+  };
 }
 
 async function invokeBedrock(prompt) {
@@ -157,6 +196,7 @@ exports.chat = onRequest(
         const telemetryRows = contextOnly ? [] : await getRecentTelemetry(deviceId);
         const hasContext = Boolean(contextData.latest_5m || contextData.latest_60m);
         const hasTelemetry = telemetryRows.length > 0;
+        const deterministic = computeDeterministicSignals(contextData);
 
         if ((contextOnly && !hasContext) || (!contextOnly && !hasContext && !hasTelemetry)) {
           res
@@ -183,11 +223,25 @@ exports.chat = onRequest(
           logger.warn("Failed to parse structured JSON answer", err);
         }
 
+        if (!structuredAnswer || typeof structuredAnswer !== "object") {
+          structuredAnswer = {};
+        }
+        structuredAnswer.data_freshness = deterministic.data_freshness;
+        structuredAnswer.urgency = deterministic.deterministic_urgency;
+        if (!structuredAnswer.note) {
+          if (deterministic.data_freshness === "stale_5m") {
+            structuredAnswer.note = "No usable 5-minute telemetry; guidance is based on 60-minute context.";
+          } else if (deterministic.data_freshness === "no_context") {
+            structuredAnswer.note = "No telemetry context available for this device.";
+          }
+        }
+
         res.status(200).json({
           answer,
           structured_answer: structuredAnswer,
           device_id: deviceId,
           mode: contextOnly ? "context_only" : "context_plus_telemetry",
+          deterministic,
           context_used: contextData,
         });
       } catch (error) {

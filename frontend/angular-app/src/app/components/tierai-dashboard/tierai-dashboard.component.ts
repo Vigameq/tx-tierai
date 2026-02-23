@@ -21,7 +21,6 @@ export class TieraiDashboardComponent {
 
   readonly deviceId = signal('servexl/edgeblr01');
   readonly inputText = signal('');
-  readonly selectedDateTime = signal('');
   readonly loading = signal(false);
   readonly messages = signal<ChatMessage[]>([
     {
@@ -82,15 +81,12 @@ export class TieraiDashboardComponent {
     this.loading.set(true);
 
     const includeTelemetry = this.shouldIncludeTelemetry(text);
-    const queryTs = this.toQueryTs(this.selectedDateTime());
-
     this.chatService
       .chat({
         device_id: this.deviceId(),
         message: text,
-        context_only: queryTs ? false : !includeTelemetry,
+        context_only: !includeTelemetry,
         local_timezone: this.localTimezone,
-        query_ts: queryTs ?? undefined,
       })
       .pipe(
         catchError((err) => {
@@ -127,10 +123,6 @@ export class TieraiDashboardComponent {
     this.stickToBottom = this.isNearBottom();
   }
 
-  clearDateTime(): void {
-    this.selectedDateTime.set('');
-  }
-
   private scheduleScrollToBottom(): void {
     setTimeout(() => this.scrollToBottom(), 0);
   }
@@ -151,16 +143,5 @@ export class TieraiDashboardComponent {
     }
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     return distanceFromBottom <= this.bottomThresholdPx;
-  }
-
-  private toQueryTs(localDateTime: string): number | null {
-    if (!localDateTime) {
-      return null;
-    }
-    const ms = new Date(localDateTime).getTime();
-    if (!Number.isFinite(ms) || ms <= 0) {
-      return null;
-    }
-    return Math.floor(ms / 1000);
   }
 }

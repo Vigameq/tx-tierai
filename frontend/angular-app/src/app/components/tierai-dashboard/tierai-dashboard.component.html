@@ -74,21 +74,11 @@
       </div>
 
       <div class="composer">
-        <div class="time-picker">
-          <input
-            type="datetime-local"
-            [ngModel]="selectedDateTime()"
-            (ngModelChange)="selectedDateTime.set($event)"
-          />
-          <button class="ghost" type="button" (click)="clearDateTime()" [disabled]="loading() || !selectedDateTime()">
-            Clear
-          </button>
-        </div>
         <textarea
           [ngModel]="inputText()"
           (ngModelChange)="inputText.set($event)"
           (keydown)="onComposerKeydown($event)"
-          placeholder="Ask: What was temperature at 2:30 AM? (or pick exact time above)"
+          placeholder="Ask: What was temperature at 2:30 AM on 2026-02-23?"
         ></textarea>
         <button [disabled]="!canSend()" (click)="send()">
           <span *ngIf="!loading()">Send</span>

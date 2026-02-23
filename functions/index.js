@@ -181,6 +181,113 @@ function n(value) {
   return Number.isFinite(num) ? num : 0;
 }
 
+function getTodayDateInTimezone(timeZone) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timeZone || "UTC",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const byType = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+    if (byType.year && byType.month && byType.day) {
+      return `${byType.year}-${byType.month}-${byType.day}`;
+    }
+  } catch {
+    // ignore
+  }
+  return new Date().toISOString().slice(0, 10);
+}
+
+function shiftIsoDate(isoDate, dayOffset) {
+  const m = String(isoDate || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return isoDate;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  dt.setUTCDate(dt.getUTCDate() + dayOffset);
+  const y = dt.getUTCFullYear();
+  const mo = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(dt.getUTCDate()).padStart(2, "0");
+  return `${y}-${mo}-${d}`;
+}
+
+function inferDatePartFromMessage(text, fallbackTimezone) {
+  const lower = String(text || "").toLowerCase();
+  const explicitDate = lower.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  if (explicitDate) {
+    return explicitDate[1];
+  }
+  const today = getTodayDateInTimezone(fallbackTimezone || "UTC");
+  if (/\byesterday\b/.test(lower)) {
+    return shiftIsoDate(today, -1);
+  }
+  if (/\btomorrow\b/.test(lower)) {
+    return shiftIsoDate(today, 1);
+  }
+  return today;
+}
+
+function timezoneAbbrevToOffset(tz) {
+  const map = {
+    UTC: "+00:00",
+    GMT: "+00:00",
+    EST: "-05:00",
+    EDT: "-04:00",
+    CST: "-06:00",
+    CDT: "-05:00",
+    MST: "-07:00",
+    MDT: "-06:00",
+    PST: "-08:00",
+    PDT: "-07:00",
+  };
+  return map[String(tz || "").toUpperCase()] || null;
+}
+
+function inferQueryTsFromMessage(message, fallbackTimezone) {
+  if (typeof message !== "string" || !message.trim()) return null;
+
+  const text = message.trim();
+  const fullPattern =
+    /(?:(\d{4}-\d{2}-\d{2})\s*(?:at\s*)?)?(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?\s*(UTC|GMT|EST|EDT|CST|CDT|MST|MDT|PST|PDT)?/i;
+  const m = text.match(fullPattern);
+  if (!m) return null;
+
+  const [, datePartRaw, hhRaw, mmRaw, ssRaw, ampmRaw, tzRaw] = m;
+  const datePart = datePartRaw || inferDatePartFromMessage(text, fallbackTimezone || "UTC");
+  let hour = n(hhRaw);
+  const minute = n(mmRaw);
+  const second = n(ssRaw || 0);
+  const ampm = (ampmRaw || "").toUpperCase();
+  const tzOffset = timezoneAbbrevToOffset(tzRaw);
+
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) {
+    return null;
+  }
+
+  if (ampm) {
+    if (hour < 1 || hour > 12) return null;
+    if (ampm === "AM") {
+      hour = hour % 12;
+    } else if (ampm === "PM") {
+      hour = (hour % 12) + 12;
+    }
+  }
+
+  if (!tzOffset) {
+    return null;
+  }
+
+  const hh = String(hour).padStart(2, "0");
+  const mm = String(minute).padStart(2, "0");
+  const ss = String(second).padStart(2, "0");
+  const iso = `${datePart}T${hh}:${mm}:${ss}${tzOffset}`;
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  return Math.floor(ms / 1000);
+}
+
 function formatEpochSecondsInTimezone(epochSeconds, timeZone) {
   const ms = n(epochSeconds) * 1000;
   if (!ms) return null;
@@ -384,11 +491,13 @@ exports.chat = onRequest(
         const deviceId = body.device_id;
         const message = body.message;
         const contextOnly = body.context_only !== false;
-        const queryTs = Number(body.query_ts || 0);
+        const explicitQueryTs = Number(body.query_ts || 0);
         const localTimezone =
           typeof body.local_timezone === "string" && body.local_timezone.trim()
             ? body.local_timezone.trim()
             : "UTC";
+        const parsedQueryTs = inferQueryTsFromMessage(message, localTimezone);
+        const queryTs = explicitQueryTs || parsedQueryTs || 0;
 
         if (!deviceId || !message || typeof message !== "string") {
           res.status(400).json({
@@ -465,6 +574,12 @@ exports.chat = onRequest(
             ...deterministic,
             ...slopeInfo,
             requested_point: requestedPoint,
+            query_ts_used: queryTs || null,
+            query_ts_source: explicitQueryTs
+              ? "request.query_ts"
+              : parsedQueryTs
+                ? "parsed_from_message"
+                : null,
           },
           context_used: contextData,
         });

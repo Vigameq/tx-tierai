@@ -19,6 +19,7 @@ const BEDROCK_MODEL_ID =
 const TELEMETRY_TABLE = process.env.TELEMETRY_TABLE || "TierAITelemetry";
 const CONTEXT_TABLE = process.env.CONTEXT_TABLE || "TierAIContext";
 const MAX_TELEMETRY_ROWS = Number(process.env.MAX_TELEMETRY_ROWS || 30);
+const MAX_QUERY_GAP_SECONDS = Number(process.env.MAX_QUERY_GAP_SECONDS || 21600);
 
 const dynamo = new DynamoDBClient({ region: AWS_REGION });
 const bedrock = new BedrockRuntimeClient({ region: AWS_REGION });
@@ -70,15 +71,84 @@ async function getRecentTelemetry(deviceId) {
   return items.reverse();
 }
 
-function buildPrompt(deviceId, userMessage, contextData, telemetryRows) {
+async function getNearestTelemetryAtTs(deviceId, queryTs) {
+  const qTs = n(queryTs);
+  if (!qTs) return null;
+
+  const [beforeResp, afterResp] = await Promise.all([
+    dynamo.send(
+      new QueryCommand({
+        TableName: TELEMETRY_TABLE,
+        KeyConditionExpression: "device_id = :d AND #ts <= :q",
+        ExpressionAttributeNames: { "#ts": "ts" },
+        ExpressionAttributeValues: {
+          ":d": { S: deviceId },
+          ":q": { N: String(qTs) },
+        },
+        ScanIndexForward: false,
+        Limit: 1,
+      })
+    ),
+    dynamo.send(
+      new QueryCommand({
+        TableName: TELEMETRY_TABLE,
+        KeyConditionExpression: "device_id = :d AND #ts >= :q",
+        ExpressionAttributeNames: { "#ts": "ts" },
+        ExpressionAttributeValues: {
+          ":d": { S: deviceId },
+          ":q": { N: String(qTs) },
+        },
+        ScanIndexForward: true,
+        Limit: 1,
+      })
+    ),
+  ]);
+
+  const before = beforeResp.Items?.[0] ? unmarshall(beforeResp.Items[0]) : null;
+  const after = afterResp.Items?.[0] ? unmarshall(afterResp.Items[0]) : null;
+  if (!before && !after) return null;
+
+  const beforeTs = before ? n(before.ts) : 0;
+  const afterTs = after ? n(after.ts) : 0;
+  const beforeGap = beforeTs ? Math.abs(qTs - beforeTs) : Number.MAX_SAFE_INTEGER;
+  const afterGap = afterTs ? Math.abs(afterTs - qTs) : Number.MAX_SAFE_INTEGER;
+
+  const nearest = beforeGap <= afterGap ? before : after;
+  const nearestTs = n(nearest?.ts);
+  if (!nearestTs) return null;
+
+  const gapSeconds = Math.abs(nearestTs - qTs);
+  if (gapSeconds > MAX_QUERY_GAP_SECONDS) {
+    return {
+      status: "no_data_for_requested_time",
+      query_ts: qTs,
+      gap_seconds: gapSeconds,
+      max_gap_seconds: MAX_QUERY_GAP_SECONDS,
+      nearest: null,
+    };
+  }
+
+  return {
+    status: nearestTs === qTs ? "exact_match" : "nearest_within_gap",
+    query_ts: qTs,
+    gap_seconds: gapSeconds,
+    max_gap_seconds: MAX_QUERY_GAP_SECONDS,
+    nearest,
+  };
+}
+
+function buildPrompt(deviceId, userMessage, contextData, telemetryRows, requestedPoint) {
   const hasTelemetry = Array.isArray(telemetryRows) && telemetryRows.length > 0;
+  const requestedPointBlock = requestedPoint
+    ? JSON.stringify(requestedPoint, null, 2)
+    : "Not provided.";
   return [
     "You are TierAI Ops Assistant.",
     "Use only the provided telemetry context.",
     `All time references in your answer must be in timezone: ${contextData?.requested_timezone || "UTC"}.`,
     "If data is insufficient, explicitly state what is missing.",
     "Return ONLY valid JSON with keys:",
-    "{\"current_state\":\"...\",\"likely_issue\":\"...\",\"next_checks\":[\"...\"],\"urgency\":\"low|medium|high\",\"data_freshness\":\"fresh_5m|stale_5m|no_context\",\"note\":\"...\"}",
+    "{\"current_state\":\"...\",\"likely_issue\":\"...\",\"next_checks\":[\"...\"],\"urgency\":\"low|medium|high\",\"data_freshness\":\"fresh_5m|stale_5m|no_context\",\"requested_time_local\":\"...\",\"requested_time_temperature\":0,\"requested_time_humidity\":0,\"note\":\"...\"}",
     "",
     `Device ID: ${deviceId}`,
     "",
@@ -87,6 +157,10 @@ function buildPrompt(deviceId, userMessage, contextData, telemetryRows) {
     "",
     "Recent telemetry (optional):",
     hasTelemetry ? JSON.stringify(telemetryRows.slice(-10), null, 2) : "Not included in this request.",
+    "",
+    "Requested timestamp lookup (optional):",
+    requestedPointBlock,
+    "If requested timestamp lookup is present and has nearest telemetry, answer with those exact values first.",
     "",
     `User question: ${userMessage}`,
   ].join("\n");
@@ -142,6 +216,19 @@ function extractTempAndTs(row) {
     temp = null;
   }
   return { ts, temp };
+}
+
+function extractHumidity(row) {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+  let humidity = null;
+  if (row.humidity !== undefined) {
+    humidity = Number(row.humidity);
+  } else if (row.payload && row.payload.humidity !== undefined) {
+    humidity = Number(row.payload.humidity);
+  }
+  return Number.isFinite(humidity) ? humidity : null;
 }
 
 function computeLastPositiveSlope(telemetryRows, timeZone) {
@@ -240,6 +327,20 @@ function deriveCurrentState(contextData, deterministic) {
   return `Last reading recorded at ${windowEndLocal} (${tz})`;
 }
 
+function enrichRequestedPoint(requestedPoint, timeZone) {
+  if (!requestedPoint) return null;
+  const nearest = requestedPoint.nearest || null;
+  const nearestTs = n(nearest?.ts);
+  const tempInfo = extractTempAndTs(nearest);
+  return {
+    ...requestedPoint,
+    query_local: formatEpochSecondsInTimezone(requestedPoint.query_ts, timeZone || "UTC"),
+    nearest_local: nearestTs ? formatEpochSecondsInTimezone(nearestTs, timeZone || "UTC") : null,
+    nearest_temp: tempInfo.temp,
+    nearest_humidity: extractHumidity(nearest),
+  };
+}
+
 async function invokeBedrock(prompt) {
   const body = {
     anthropic_version: "bedrock-2023-05-31",
@@ -283,6 +384,7 @@ exports.chat = onRequest(
         const deviceId = body.device_id;
         const message = body.message;
         const contextOnly = body.context_only !== false;
+        const queryTs = Number(body.query_ts || 0);
         const localTimezone =
           typeof body.local_timezone === "string" && body.local_timezone.trim()
             ? body.local_timezone.trim()
@@ -298,9 +400,11 @@ exports.chat = onRequest(
 
         const baseContextData = await getLatestContextByWindow(deviceId);
         const contextData = enrichContextWithTimezone(baseContextData, localTimezone);
-        const telemetryRows = contextOnly ? [] : await getRecentTelemetry(deviceId);
+        const telemetryRows = (contextOnly && !queryTs) ? [] : await getRecentTelemetry(deviceId);
+        const requestedPointRaw = queryTs ? await getNearestTelemetryAtTs(deviceId, queryTs) : null;
+        const requestedPoint = enrichRequestedPoint(requestedPointRaw, localTimezone);
         const hasContext = Boolean(contextData.latest_5m || contextData.latest_60m);
-        const hasTelemetry = telemetryRows.length > 0;
+        const hasTelemetry = telemetryRows.length > 0 || Boolean(requestedPoint?.nearest);
         const deterministic = computeDeterministicSignals(contextData);
         const slopeInfo = computeLastPositiveSlope(telemetryRows, localTimezone);
 
@@ -311,7 +415,7 @@ exports.chat = onRequest(
           return;
         }
 
-        const prompt = buildPrompt(deviceId, message, contextData, telemetryRows);
+        const prompt = buildPrompt(deviceId, message, contextData, telemetryRows, requestedPoint);
         const answer = await invokeBedrock(prompt);
 
         if (!answer) {
@@ -337,12 +441,19 @@ exports.chat = onRequest(
         structuredAnswer.urgency = deterministic.deterministic_urgency;
         structuredAnswer.last_positive_slope_local =
           slopeInfo.last_positive_slope_local || null;
+        structuredAnswer.requested_time_local = requestedPoint?.nearest_local || null;
+        structuredAnswer.requested_time_temperature = requestedPoint?.nearest_temp ?? null;
+        structuredAnswer.requested_time_humidity = requestedPoint?.nearest_humidity ?? null;
         if (!structuredAnswer.note) {
           if (deterministic.data_freshness === "stale_5m") {
             structuredAnswer.note = "No usable 5-minute telemetry; guidance is based on 60-minute context.";
           } else if (deterministic.data_freshness === "no_context") {
             structuredAnswer.note = "No telemetry context available for this device.";
           }
+        }
+        if (!structuredAnswer.note && requestedPoint && !requestedPoint.nearest) {
+          structuredAnswer.note =
+            `No telemetry found near requested time within ${MAX_QUERY_GAP_SECONDS} seconds.`;
         }
 
         res.status(200).json({
@@ -353,6 +464,7 @@ exports.chat = onRequest(
           deterministic: {
             ...deterministic,
             ...slopeInfo,
+            requested_point: requestedPoint,
           },
           context_used: contextData,
         });

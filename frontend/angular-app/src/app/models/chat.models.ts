@@ -10,6 +10,7 @@ export interface ChatRequest {
   message: string;
   context_only?: boolean;
   local_timezone?: string;
+  query_ts?: number;
 }
 
 export interface ChatResponse {
@@ -29,5 +30,8 @@ export interface StructuredAnswer {
   urgency?: 'low' | 'medium' | 'high' | string;
   data_freshness?: 'fresh_5m' | 'stale_5m' | 'no_context' | string;
   last_positive_slope_local?: string | null;
+  requested_time_local?: string | null;
+  requested_time_temperature?: number | null;
+  requested_time_humidity?: number | null;
   note?: string;
 }

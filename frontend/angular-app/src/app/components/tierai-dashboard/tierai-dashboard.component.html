@@ -22,7 +22,7 @@
 
     <article class="panel chat">
       <h2>Ops Copilot</h2>
-      <div class="messages">
+      <div class="messages" #messagesContainer (scroll)="onMessagesScroll()">
         <div class="message" *ngFor="let msg of messages()" [class.user]="msg.role === 'user'">
           <div class="meta">{{ msg.role }} | {{ msg.ts | date : 'shortTime' }}</div>
           <div class="content" *ngIf="!msg.structured">{{ msg.content }}</div>
@@ -53,6 +53,18 @@
               <span class="label">Last temp rise</span>
               <span class="value">{{ msg.structured.last_positive_slope_local }}</span>
             </div>
+            <div class="row" *ngIf="msg.structured.requested_time_local">
+              <span class="label">Requested time</span>
+              <span class="value">{{ msg.structured.requested_time_local }}</span>
+            </div>
+            <div class="row" *ngIf="msg.structured.requested_time_temperature !== null && msg.structured.requested_time_temperature !== undefined">
+              <span class="label">Temp &#64; time</span>
+              <span class="value">{{ msg.structured.requested_time_temperature }} C</span>
+            </div>
+            <div class="row" *ngIf="msg.structured.requested_time_humidity !== null && msg.structured.requested_time_humidity !== undefined">
+              <span class="label">Humidity &#64; time</span>
+              <span class="value">{{ msg.structured.requested_time_humidity }} RH</span>
+            </div>
             <div class="row" *ngIf="msg.structured.note">
               <span class="label">Note</span>
               <span class="value">{{ msg.structured.note }}</span>
@@ -62,11 +74,21 @@
       </div>
 
       <div class="composer">
+        <div class="time-picker">
+          <input
+            type="datetime-local"
+            [ngModel]="selectedDateTime()"
+            (ngModelChange)="selectedDateTime.set($event)"
+          />
+          <button class="ghost" type="button" (click)="clearDateTime()" [disabled]="loading() || !selectedDateTime()">
+            Clear
+          </button>
+        </div>
         <textarea
           [ngModel]="inputText()"
           (ngModelChange)="inputText.set($event)"
           (keydown)="onComposerKeydown($event)"
-          placeholder="Ask: Is this device at risk? What should I check next?"
+          placeholder="Ask: What was temperature at 2:30 AM? (or pick exact time above)"
         ></textarea>
         <button [disabled]="!canSend()" (click)="send()">
           <span *ngIf="!loading()">Send</span>

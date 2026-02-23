@@ -20,6 +20,7 @@ const TELEMETRY_TABLE = process.env.TELEMETRY_TABLE || "TierAITelemetry";
 const CONTEXT_TABLE = process.env.CONTEXT_TABLE || "TierAIContext";
 const MAX_TELEMETRY_ROWS = Number(process.env.MAX_TELEMETRY_ROWS || 30);
 const MAX_QUERY_GAP_SECONDS = Number(process.env.MAX_QUERY_GAP_SECONDS || 21600);
+const MAX_QUERY_ROWS = Number(process.env.MAX_QUERY_ROWS || 500);
 
 const dynamo = new DynamoDBClient({ region: AWS_REGION });
 const bedrock = new BedrockRuntimeClient({ region: AWS_REGION });
@@ -181,6 +182,11 @@ function n(value) {
   return Number.isFinite(num) ? num : 0;
 }
 
+function parseNum(value, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
 function getTodayDateInTimezone(timeZone) {
   try {
     const parts = new Intl.DateTimeFormat("en-CA", {
@@ -338,6 +344,52 @@ function extractHumidity(row) {
   return Number.isFinite(humidity) ? humidity : null;
 }
 
+function normalizeTelemetryRow(row, timeZone) {
+  const ts = n(row?.ts);
+  const tempInfo = extractTempAndTs(row);
+  return {
+    device_id: row?.device_id || null,
+    ts,
+    ts_local: ts ? formatEpochSecondsInTimezone(ts, timeZone || "UTC") : null,
+    temp: tempInfo.temp,
+    humidity: extractHumidity(row),
+    unit_temp: row?.unit_temp || row?.payload?.unit_temp || "degC",
+    unit_humidity: row?.unit_humidity || row?.payload?.unit_humidity || "RH",
+  };
+}
+
+async function queryTelemetryRange(deviceId, startTs, endTs, limit = MAX_QUERY_ROWS) {
+  const safeLimit = Math.min(Math.max(1, parseNum(limit, MAX_QUERY_ROWS)), MAX_QUERY_ROWS);
+  const items = [];
+  let lastEvaluatedKey;
+
+  do {
+    const resp = await dynamo.send(
+      new QueryCommand({
+        TableName: TELEMETRY_TABLE,
+        KeyConditionExpression: "device_id = :d AND #ts BETWEEN :s AND :e",
+        ExpressionAttributeNames: { "#ts": "ts" },
+        ExpressionAttributeValues: {
+          ":d": { S: deviceId },
+          ":s": { N: String(startTs) },
+          ":e": { N: String(endTs) },
+        },
+        ScanIndexForward: true,
+        ExclusiveStartKey: lastEvaluatedKey,
+        Limit: Math.min(100, safeLimit - items.length),
+      })
+    );
+    (resp.Items || []).forEach((item) => items.push(unmarshall(item)));
+    lastEvaluatedKey = resp.LastEvaluatedKey;
+  } while (lastEvaluatedKey && items.length < safeLimit);
+
+  return {
+    items,
+    truncated: Boolean(lastEvaluatedKey),
+    limit: safeLimit,
+  };
+}
+
 function computeLastPositiveSlope(telemetryRows, timeZone) {
   if (!Array.isArray(telemetryRows) || telemetryRows.length < 2) {
     return { last_positive_slope_ts: null, last_positive_slope_local: null };
@@ -472,6 +524,18 @@ async function invokeBedrock(prompt) {
   return parts.join("\n").trim();
 }
 
+function withCors(handler) {
+  return async (req, res) => {
+    corsHandler(req, res, async () => {
+      if (req.method === "OPTIONS") {
+        res.status(204).send("");
+        return;
+      }
+      await handler(req, res);
+    });
+  };
+}
+
 exports.chat = onRequest(
   { region: "asia-southeast1", timeoutSeconds: 120, memory: "512MiB" },
   async (req, res) => {
@@ -591,4 +655,105 @@ exports.chat = onRequest(
       }
     });
   }
+);
+
+exports.readings = onRequest(
+  { region: "asia-southeast1", timeoutSeconds: 120, memory: "512MiB" },
+  withCors(async (req, res) => {
+    if (!["GET", "POST"].includes(req.method)) {
+      res.status(405).json({ detail: "Method not allowed. Use GET or POST." });
+      return;
+    }
+    try {
+      const body = req.method === "GET" ? req.query : parseBody(req);
+      const deviceId = body.device_id;
+      const startTs = parseNum(body.start_ts);
+      const endTs = parseNum(body.end_ts);
+      const limit = parseNum(body.limit, MAX_QUERY_ROWS);
+      const localTimezone =
+        typeof body.local_timezone === "string" && body.local_timezone.trim()
+          ? body.local_timezone.trim()
+          : "UTC";
+
+      if (!deviceId || !startTs || !endTs || endTs < startTs) {
+        res.status(400).json({
+          detail:
+            "Invalid request. Expected device_id, start_ts, end_ts, optional limit/local_timezone.",
+        });
+        return;
+      }
+
+      const result = await queryTelemetryRange(deviceId, startTs, endTs, limit);
+      const readings = result.items.map((row) => normalizeTelemetryRow(row, localTimezone));
+
+      res.status(200).json({
+        device_id: deviceId,
+        start_ts: startTs,
+        end_ts: endTs,
+        local_timezone: localTimezone,
+        count: readings.length,
+        truncated: result.truncated,
+        limit: result.limit,
+        readings,
+      });
+    } catch (error) {
+      logger.error("readings function failed", error);
+      res.status(500).json({
+        detail: `Backend error: ${error.message || "unknown error"}`,
+      });
+    }
+  })
+);
+
+exports.exceedances = onRequest(
+  { region: "asia-southeast1", timeoutSeconds: 120, memory: "512MiB" },
+  withCors(async (req, res) => {
+    if (!["GET", "POST"].includes(req.method)) {
+      res.status(405).json({ detail: "Method not allowed. Use GET or POST." });
+      return;
+    }
+    try {
+      const body = req.method === "GET" ? req.query : parseBody(req);
+      const deviceId = body.device_id;
+      const startTs = parseNum(body.start_ts);
+      const endTs = parseNum(body.end_ts);
+      const thresholdTemp = parseNum(body.threshold_temp, 40);
+      const limit = parseNum(body.limit, MAX_QUERY_ROWS);
+      const localTimezone =
+        typeof body.local_timezone === "string" && body.local_timezone.trim()
+          ? body.local_timezone.trim()
+          : "UTC";
+
+      if (!deviceId || !startTs || !endTs || endTs < startTs) {
+        res.status(400).json({
+          detail:
+            "Invalid request. Expected device_id, start_ts, end_ts, optional threshold_temp/limit/local_timezone.",
+        });
+        return;
+      }
+
+      const result = await queryTelemetryRange(deviceId, startTs, endTs, limit);
+      const exceedances = result.items
+        .map((row) => normalizeTelemetryRow(row, localTimezone))
+        .filter((row) => row.temp !== null && row.temp > thresholdTemp);
+
+      res.status(200).json({
+        device_id: deviceId,
+        start_ts: startTs,
+        end_ts: endTs,
+        threshold_temp: thresholdTemp,
+        local_timezone: localTimezone,
+        count: exceedances.length,
+        scanned_count: result.items.length,
+        truncated: result.truncated,
+        limit: result.limit,
+        exceedances,
+      });
+    } catch (error) {
+      logger.error("exceedances function failed", error);
+      res.status(500).json({
+        detail: `Backend error: ${error.message || "unknown error"}`,
+      });
+    }
+  })
 );

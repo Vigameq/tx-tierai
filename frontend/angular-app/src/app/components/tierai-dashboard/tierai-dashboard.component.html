@@ -85,6 +85,17 @@
           <span *ngIf="loading()">Thinking...</span>
         </button>
       </div>
+      <div class="examples">
+        <button
+          type="button"
+          class="example-chip"
+          *ngFor="let prompt of examplePrompts"
+          (click)="applyPrompt(prompt)"
+          [disabled]="loading()"
+        >
+          {{ prompt }}
+        </button>
+      </div>
     </article>
   </section>
 </div>

@@ -187,6 +187,83 @@ function parseNum(value, fallback = 0) {
   return Number.isFinite(num) ? num : fallback;
 }
 
+function parseLocalDateTimeText(text) {
+  if (!text || typeof text !== "string") return null;
+  const m = text
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const minute = Number(m[5]);
+  const second = Number(m[6] || 0);
+  if (
+    year < 1970 ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31 ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59 ||
+    second < 0 ||
+    second > 59
+  ) {
+    return null;
+  }
+  return { year, month, day, hour, minute, second };
+}
+
+function parseGmtOffsetToMinutes(text) {
+  if (!text) return null;
+  const m = String(text).match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/i);
+  if (!m) return null;
+  const sign = m[1] === "-" ? -1 : 1;
+  const hours = Number(m[2]);
+  const mins = Number(m[3] || 0);
+  if (!Number.isFinite(hours) || !Number.isFinite(mins)) return null;
+  return sign * (hours * 60 + mins);
+}
+
+function getOffsetMinutesForTimezone(epochMs, timeZone) {
+  try {
+    const dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone: timeZone || "UTC",
+      timeZoneName: "shortOffset",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    const parts = dtf.formatToParts(new Date(epochMs));
+    const tzName = parts.find((p) => p.type === "timeZoneName")?.value || "";
+    const offsetMin = parseGmtOffsetToMinutes(tzName);
+    return offsetMin === null ? 0 : offsetMin;
+  } catch {
+    return 0;
+  }
+}
+
+function localDateTimeToEpoch(localText, timeZone) {
+  const p = parseLocalDateTimeText(localText);
+  if (!p) return null;
+  const localMsAsUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  let offsetMin = getOffsetMinutesForTimezone(localMsAsUtc, timeZone);
+  let epochMs = localMsAsUtc - offsetMin * 60 * 1000;
+  const refinedOffset = getOffsetMinutesForTimezone(epochMs, timeZone);
+  if (refinedOffset !== offsetMin) {
+    offsetMin = refinedOffset;
+    epochMs = localMsAsUtc - offsetMin * 60 * 1000;
+  }
+  return Math.floor(epochMs / 1000);
+}
+
 function getTodayDateInTimezone(timeZone) {
   try {
     const parts = new Intl.DateTimeFormat("en-CA", {
@@ -298,7 +375,7 @@ function formatEpochSecondsInTimezone(epochSeconds, timeZone) {
   const ms = n(epochSeconds) * 1000;
   if (!ms) return null;
   try {
-    return new Intl.DateTimeFormat("en-CA", {
+    const parts = new Intl.DateTimeFormat("en-GB", {
       timeZone: timeZone || "UTC",
       year: "numeric",
       month: "2-digit",
@@ -308,7 +385,16 @@ function formatEpochSecondsInTimezone(epochSeconds, timeZone) {
       second: "2-digit",
       hour12: false,
       timeZoneName: "short",
-    }).format(new Date(ms));
+    }).formatToParts(new Date(ms));
+    const byType = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+    const dd = byType.day || "00";
+    const mm = byType.month || "00";
+    const yyyy = byType.year || "0000";
+    const hh = byType.hour || "00";
+    const min = byType.minute || "00";
+    const sec = byType.second || "00";
+    const tz = byType.timeZoneName || "UTC";
+    return `${dd}-${mm}-${yyyy}, ${hh}:${min}:${sec} ${tz}`;
   } catch {
     return new Date(ms).toISOString();
   }
@@ -667,18 +753,20 @@ exports.readings = onRequest(
     try {
       const body = req.method === "GET" ? req.query : parseBody(req);
       const deviceId = body.device_id;
-      const startTs = parseNum(body.start_ts);
-      const endTs = parseNum(body.end_ts);
-      const limit = parseNum(body.limit, MAX_QUERY_ROWS);
       const localTimezone =
         typeof body.local_timezone === "string" && body.local_timezone.trim()
           ? body.local_timezone.trim()
           : "UTC";
+      const startTs =
+        parseNum(body.start_ts) || localDateTimeToEpoch(body.start_local, localTimezone) || 0;
+      const endTs =
+        parseNum(body.end_ts) || localDateTimeToEpoch(body.end_local, localTimezone) || 0;
+      const limit = parseNum(body.limit, MAX_QUERY_ROWS);
 
       if (!deviceId || !startTs || !endTs || endTs < startTs) {
         res.status(400).json({
           detail:
-            "Invalid request. Expected device_id, start_ts, end_ts, optional limit/local_timezone.",
+            "Invalid request. Expected device_id and either (start_ts,end_ts) or (start_local,end_local), optional limit/local_timezone.",
         });
         return;
       }
@@ -715,19 +803,21 @@ exports.exceedances = onRequest(
     try {
       const body = req.method === "GET" ? req.query : parseBody(req);
       const deviceId = body.device_id;
-      const startTs = parseNum(body.start_ts);
-      const endTs = parseNum(body.end_ts);
-      const thresholdTemp = parseNum(body.threshold_temp, 40);
-      const limit = parseNum(body.limit, MAX_QUERY_ROWS);
       const localTimezone =
         typeof body.local_timezone === "string" && body.local_timezone.trim()
           ? body.local_timezone.trim()
           : "UTC";
+      const startTs =
+        parseNum(body.start_ts) || localDateTimeToEpoch(body.start_local, localTimezone) || 0;
+      const endTs =
+        parseNum(body.end_ts) || localDateTimeToEpoch(body.end_local, localTimezone) || 0;
+      const thresholdTemp = parseNum(body.threshold_temp, 40);
+      const limit = parseNum(body.limit, MAX_QUERY_ROWS);
 
       if (!deviceId || !startTs || !endTs || endTs < startTs) {
         res.status(400).json({
           detail:
-            "Invalid request. Expected device_id, start_ts, end_ts, optional threshold_temp/limit/local_timezone.",
+            "Invalid request. Expected device_id and either (start_ts,end_ts) or (start_local,end_local), optional threshold_temp/limit/local_timezone.",
         });
         return;
       }
@@ -751,6 +841,52 @@ exports.exceedances = onRequest(
       });
     } catch (error) {
       logger.error("exceedances function failed", error);
+      res.status(500).json({
+        detail: `Backend error: ${error.message || "unknown error"}`,
+      });
+    }
+  })
+);
+
+exports.timeToEpoch = onRequest(
+  { region: "asia-southeast1", timeoutSeconds: 120, memory: "256MiB" },
+  withCors(async (req, res) => {
+    if (!["GET", "POST"].includes(req.method)) {
+      res.status(405).json({ detail: "Method not allowed. Use GET or POST." });
+      return;
+    }
+    try {
+      const body = req.method === "GET" ? req.query : parseBody(req);
+      const localDatetime = body.local_datetime;
+      const localTimezone =
+        typeof body.local_timezone === "string" && body.local_timezone.trim()
+          ? body.local_timezone.trim()
+          : "UTC";
+
+      if (!localDatetime) {
+        res.status(400).json({
+          detail: "Invalid request. Expected local_datetime and optional local_timezone.",
+        });
+        return;
+      }
+
+      const epoch = localDateTimeToEpoch(localDatetime, localTimezone);
+      if (!epoch) {
+        res.status(400).json({
+          detail:
+            "Could not parse local_datetime. Expected format: YYYY-MM-DD HH:mm:ss or YYYY-MM-DDTHH:mm:ss",
+        });
+        return;
+      }
+
+      res.status(200).json({
+        local_datetime: localDatetime,
+        local_timezone: localTimezone,
+        epoch_ts: epoch,
+        formatted_local: formatEpochSecondsInTimezone(epoch, localTimezone),
+      });
+    } catch (error) {
+      logger.error("timeToEpoch function failed", error);
       res.status(500).json({
         detail: `Backend error: ${error.message || "unknown error"}`,
       });

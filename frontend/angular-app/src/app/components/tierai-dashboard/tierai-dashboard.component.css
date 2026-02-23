@@ -183,6 +183,37 @@
   gap: 8px;
 }
 
+.examples {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.examples-label {
+  font-size: 12px;
+  color: #4b6488;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-right: 2px;
+}
+
+.example-chip {
+  border: 1px solid rgba(89, 166, 255, 0.35);
+  background: rgba(255, 255, 255, 0.75);
+  color: #1b3d66;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.example-chip:hover:not(:disabled) {
+  background: rgba(89, 166, 255, 0.18);
+}
+
 textarea {
   height: 78px;
   resize: none;

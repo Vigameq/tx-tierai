@@ -30,6 +30,12 @@ export class TieraiDashboardComponent {
     },
   ]);
   readonly localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  readonly examplePrompts = [
+    'What is the current state of this device?',
+    'Did temperature exceed 40 C in the last hour?',
+    'What was temperature at 2:45 AM EST yesterday?',
+    'List the last 5 telemetry readings.',
+  ];
 
   readonly canSend = computed(() => this.inputText().trim().length > 0 && !this.loading());
 
@@ -121,6 +127,13 @@ export class TieraiDashboardComponent {
 
   onMessagesScroll(): void {
     this.stickToBottom = this.isNearBottom();
+  }
+
+  applyPrompt(prompt: string): void {
+    if (this.loading()) {
+      return;
+    }
+    this.inputText.set(prompt);
   }
 
   private scheduleScrollToBottom(): void {

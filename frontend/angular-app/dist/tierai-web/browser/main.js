@@ -54,6 +54,9 @@ function setActiveConsumer(consumer) {
 function getActiveConsumer() {
   return activeConsumer;
 }
+function isInNotificationPhase() {
+  return inNotificationPhase;
+}
 var REACTIVE_NODE = {
   version: 0,
   lastCleanEpoch: 0,
@@ -332,6 +335,73 @@ function signalValueChanged(node) {
   producerNotifyConsumers(node);
   postSignalSetFn?.();
 }
+function createWatch(fn, schedule, allowSignalWrites) {
+  const node = Object.create(WATCH_NODE);
+  if (allowSignalWrites) {
+    node.consumerAllowSignalWrites = true;
+  }
+  node.fn = fn;
+  node.schedule = schedule;
+  const registerOnCleanup = (cleanupFn) => {
+    node.cleanupFn = cleanupFn;
+  };
+  function isWatchNodeDestroyed(node2) {
+    return node2.fn === null && node2.schedule === null;
+  }
+  function destroyWatchNode(node2) {
+    if (!isWatchNodeDestroyed(node2)) {
+      consumerDestroy(node2);
+      node2.cleanupFn();
+      node2.fn = null;
+      node2.schedule = null;
+      node2.cleanupFn = NOOP_CLEANUP_FN;
+    }
+  }
+  const run = () => {
+    if (node.fn === null) {
+      return;
+    }
+    if (isInNotificationPhase()) {
+      throw new Error(`Schedulers cannot synchronously execute watches while scheduling.`);
+    }
+    node.dirty = false;
+    if (node.hasRun && !consumerPollProducersForChange(node)) {
+      return;
+    }
+    node.hasRun = true;
+    const prevConsumer = consumerBeforeComputation(node);
+    try {
+      node.cleanupFn();
+      node.cleanupFn = NOOP_CLEANUP_FN;
+      node.fn(registerOnCleanup);
+    } finally {
+      consumerAfterComputation(node, prevConsumer);
+    }
+  };
+  node.ref = {
+    notify: () => consumerMarkDirty(node),
+    run,
+    cleanup: () => node.cleanupFn(),
+    destroy: () => destroyWatchNode(node),
+    [SIGNAL]: node
+  };
+  return node.ref;
+}
+var NOOP_CLEANUP_FN = () => {
+};
+var WATCH_NODE = /* @__PURE__ */ (() => {
+  return __spreadProps(__spreadValues({}, REACTIVE_NODE), {
+    consumerIsAlwaysLive: true,
+    consumerAllowSignalWrites: false,
+    consumerMarkedDirty: (node) => {
+      if (node.schedule !== null) {
+        node.schedule(node.ref);
+      }
+    },
+    hasRun: false,
+    cleanupFn: NOOP_CLEANUP_FN
+  });
+})();
 
 // node_modules/rxjs/dist/esm/internal/util/isFunction.js
 function isFunction(value) {
@@ -12531,6 +12601,11 @@ function invokeAllTriggerCleanupFns(lDetails) {
   invokeTriggerCleanupFns(1, lDetails);
   invokeTriggerCleanupFns(0, lDetails);
 }
+function assertNotInReactiveContext(debugFn, extraContext) {
+  if (getActiveConsumer() !== null) {
+    throw new RuntimeError(-602, ngDevMode && `${debugFn.name}() cannot be called from within a reactive context.${extraContext ? ` ${extraContext}` : ""}`);
+  }
+}
 var AfterRenderPhase;
 (function(AfterRenderPhase2) {
   AfterRenderPhase2[AfterRenderPhase2["EarlyRead"] = 0] = "EarlyRead";
@@ -21619,6 +21694,53 @@ var ZoneAwareEffectScheduler = class {
     }
   }
 };
+var EffectHandle = class {
+  constructor(scheduler, effectFn, creationZone, destroyRef, injector, allowSignalWrites) {
+    this.scheduler = scheduler;
+    this.effectFn = effectFn;
+    this.creationZone = creationZone;
+    this.injector = injector;
+    this.watcher = createWatch((onCleanup) => this.runEffect(onCleanup), () => this.schedule(), allowSignalWrites);
+    this.unregisterOnDestroy = destroyRef?.onDestroy(() => this.destroy());
+  }
+  runEffect(onCleanup) {
+    try {
+      this.effectFn(onCleanup);
+    } catch (err) {
+      const errorHandler2 = this.injector.get(ErrorHandler, null, {
+        optional: true
+      });
+      errorHandler2?.handleError(err);
+    }
+  }
+  run() {
+    this.watcher.run();
+  }
+  schedule() {
+    this.scheduler.scheduleEffect(this);
+  }
+  destroy() {
+    this.watcher.destroy();
+    this.unregisterOnDestroy?.();
+  }
+};
+function effect(effectFn, options) {
+  performanceMarkFeature("NgSignals");
+  ngDevMode && assertNotInReactiveContext(effect, "Call `effect` outside of a reactive context. For example, schedule the effect inside the component constructor.");
+  !options?.injector && assertInInjectionContext(effect);
+  const injector = options?.injector ?? inject(Injector);
+  const destroyRef = options?.manualCleanup !== true ? injector.get(DestroyRef) : null;
+  const handle = new EffectHandle(injector.get(APP_EFFECT_SCHEDULER), effectFn, typeof Zone === "undefined" ? null : Zone.current, destroyRef, injector, options?.allowSignalWrites ?? false);
+  const cdr = injector.get(ChangeDetectorRef, null, {
+    optional: true
+  });
+  if (!cdr || !(cdr._lView[FLAGS] & 8)) {
+    handle.watcher.notify();
+  } else {
+    (cdr._lView[EFFECTS_TO_SCHEDULE] ??= []).push(handle.watcher.notify);
+  }
+  return handle;
+}
 function reflectComponentType(component) {
   const componentDef = getComponentDef(component);
   if (!componentDef) return null;
@@ -41786,142 +41908,271 @@ var ChatService = class _ChatService {
 };
 
 // src/app/components/tierai-dashboard/tierai-dashboard.component.ts
-function TieraiDashboardComponent_div_25_div_4_Template(rf, ctx) {
+var _c0 = ["messagesContainer"];
+function TieraiDashboardComponent_p_15_Template(rf, ctx) {
   if (rf & 1) {
-    \u0275\u0275elementStart(0, "div", 21);
+    \u0275\u0275elementStart(0, "p", 20);
+    \u0275\u0275text(1, "Live Grafana panel");
+    \u0275\u0275elementEnd();
+  }
+}
+function TieraiDashboardComponent_p_16_Template(rf, ctx) {
+  if (rf & 1) {
+    \u0275\u0275elementStart(0, "p", 20);
+    \u0275\u0275text(1, "Set ");
+    \u0275\u0275elementStart(2, "code");
+    \u0275\u0275text(3, "window.__TIERAI_GRAFANA_URL__");
+    \u0275\u0275elementEnd();
+    \u0275\u0275text(4, " to embed Grafana.");
+    \u0275\u0275elementEnd();
+  }
+}
+function TieraiDashboardComponent_iframe_17_Template(rf, ctx) {
+  if (rf & 1) {
+    \u0275\u0275element(0, "iframe", 21);
+  }
+  if (rf & 2) {
+    const ctx_r1 = \u0275\u0275nextContext();
+    \u0275\u0275property("src", ctx_r1.grafanaEmbedUrl, \u0275\u0275sanitizeResourceUrl);
+  }
+}
+function TieraiDashboardComponent_div_18_Template(rf, ctx) {
+  if (rf & 1) {
+    \u0275\u0275elementStart(0, "div", 22);
+    \u0275\u0275element(1, "div", 23);
+    \u0275\u0275elementStart(2, "span");
+    \u0275\u0275text(3, "Grafana panel integration point");
+    \u0275\u0275elementEnd()();
+  }
+}
+function TieraiDashboardComponent_div_24_div_4_Template(rf, ctx) {
+  if (rf & 1) {
+    \u0275\u0275elementStart(0, "div", 28);
     \u0275\u0275text(1);
     \u0275\u0275elementEnd();
   }
   if (rf & 2) {
-    const msg_r1 = \u0275\u0275nextContext().$implicit;
+    const msg_r3 = \u0275\u0275nextContext().$implicit;
     \u0275\u0275advance();
-    \u0275\u0275textInterpolate(msg_r1.content);
+    \u0275\u0275textInterpolate(msg_r3.content);
   }
 }
-function TieraiDashboardComponent_div_25_div_5_span_15_Template(rf, ctx) {
+function TieraiDashboardComponent_div_24_div_5_span_15_Template(rf, ctx) {
   if (rf & 1) {
-    \u0275\u0275elementStart(0, "span", 28);
+    \u0275\u0275elementStart(0, "span", 35);
     \u0275\u0275text(1);
     \u0275\u0275elementEnd();
   }
   if (rf & 2) {
-    const item_r2 = ctx.$implicit;
+    const item_r4 = ctx.$implicit;
     \u0275\u0275advance();
-    \u0275\u0275textInterpolate(item_r2);
+    \u0275\u0275textInterpolate(item_r4);
   }
 }
-function TieraiDashboardComponent_div_25_div_5_div_21_Template(rf, ctx) {
+function TieraiDashboardComponent_div_24_div_5_div_21_Template(rf, ctx) {
   if (rf & 1) {
-    \u0275\u0275elementStart(0, "div", 23)(1, "span", 24);
+    \u0275\u0275elementStart(0, "div", 30)(1, "span", 31);
     \u0275\u0275text(2, "Data freshness");
     \u0275\u0275elementEnd();
-    \u0275\u0275elementStart(3, "span", 25);
+    \u0275\u0275elementStart(3, "span", 32);
     \u0275\u0275text(4);
     \u0275\u0275elementEnd()();
   }
   if (rf & 2) {
-    const msg_r1 = \u0275\u0275nextContext(2).$implicit;
+    const msg_r3 = \u0275\u0275nextContext(2).$implicit;
     \u0275\u0275advance(4);
-    \u0275\u0275textInterpolate(msg_r1.structured.data_freshness);
+    \u0275\u0275textInterpolate(msg_r3.structured.data_freshness);
   }
 }
-function TieraiDashboardComponent_div_25_div_5_div_22_Template(rf, ctx) {
+function TieraiDashboardComponent_div_24_div_5_div_22_Template(rf, ctx) {
   if (rf & 1) {
-    \u0275\u0275elementStart(0, "div", 23)(1, "span", 24);
+    \u0275\u0275elementStart(0, "div", 30)(1, "span", 31);
+    \u0275\u0275text(2, "Last temp rise");
+    \u0275\u0275elementEnd();
+    \u0275\u0275elementStart(3, "span", 32);
+    \u0275\u0275text(4);
+    \u0275\u0275elementEnd()();
+  }
+  if (rf & 2) {
+    const msg_r3 = \u0275\u0275nextContext(2).$implicit;
+    \u0275\u0275advance(4);
+    \u0275\u0275textInterpolate(msg_r3.structured.last_positive_slope_local);
+  }
+}
+function TieraiDashboardComponent_div_24_div_5_div_23_Template(rf, ctx) {
+  if (rf & 1) {
+    \u0275\u0275elementStart(0, "div", 30)(1, "span", 31);
+    \u0275\u0275text(2, "Requested time");
+    \u0275\u0275elementEnd();
+    \u0275\u0275elementStart(3, "span", 32);
+    \u0275\u0275text(4);
+    \u0275\u0275elementEnd()();
+  }
+  if (rf & 2) {
+    const msg_r3 = \u0275\u0275nextContext(2).$implicit;
+    \u0275\u0275advance(4);
+    \u0275\u0275textInterpolate(msg_r3.structured.requested_time_local);
+  }
+}
+function TieraiDashboardComponent_div_24_div_5_div_24_Template(rf, ctx) {
+  if (rf & 1) {
+    \u0275\u0275elementStart(0, "div", 30)(1, "span", 31);
+    \u0275\u0275text(2, "Temp @ time");
+    \u0275\u0275elementEnd();
+    \u0275\u0275elementStart(3, "span", 32);
+    \u0275\u0275text(4);
+    \u0275\u0275elementEnd()();
+  }
+  if (rf & 2) {
+    const msg_r3 = \u0275\u0275nextContext(2).$implicit;
+    \u0275\u0275advance(4);
+    \u0275\u0275textInterpolate1("", msg_r3.structured.requested_time_temperature, " C");
+  }
+}
+function TieraiDashboardComponent_div_24_div_5_div_25_Template(rf, ctx) {
+  if (rf & 1) {
+    \u0275\u0275elementStart(0, "div", 30)(1, "span", 31);
+    \u0275\u0275text(2, "Humidity @ time");
+    \u0275\u0275elementEnd();
+    \u0275\u0275elementStart(3, "span", 32);
+    \u0275\u0275text(4);
+    \u0275\u0275elementEnd()();
+  }
+  if (rf & 2) {
+    const msg_r3 = \u0275\u0275nextContext(2).$implicit;
+    \u0275\u0275advance(4);
+    \u0275\u0275textInterpolate1("", msg_r3.structured.requested_time_humidity, " RH");
+  }
+}
+function TieraiDashboardComponent_div_24_div_5_div_26_Template(rf, ctx) {
+  if (rf & 1) {
+    \u0275\u0275elementStart(0, "div", 30)(1, "span", 31);
     \u0275\u0275text(2, "Note");
     \u0275\u0275elementEnd();
-    \u0275\u0275elementStart(3, "span", 25);
+    \u0275\u0275elementStart(3, "span", 32);
     \u0275\u0275text(4);
     \u0275\u0275elementEnd()();
   }
   if (rf & 2) {
-    const msg_r1 = \u0275\u0275nextContext(2).$implicit;
+    const msg_r3 = \u0275\u0275nextContext(2).$implicit;
     \u0275\u0275advance(4);
-    \u0275\u0275textInterpolate(msg_r1.structured.note);
+    \u0275\u0275textInterpolate(msg_r3.structured.note);
   }
 }
-function TieraiDashboardComponent_div_25_div_5_Template(rf, ctx) {
+function TieraiDashboardComponent_div_24_div_5_Template(rf, ctx) {
   if (rf & 1) {
-    \u0275\u0275elementStart(0, "div", 22)(1, "div", 23)(2, "span", 24);
+    \u0275\u0275elementStart(0, "div", 29)(1, "div", 30)(2, "span", 31);
     \u0275\u0275text(3, "Current state");
     \u0275\u0275elementEnd();
-    \u0275\u0275elementStart(4, "span", 25);
+    \u0275\u0275elementStart(4, "span", 32);
     \u0275\u0275text(5);
     \u0275\u0275elementEnd()();
-    \u0275\u0275elementStart(6, "div", 23)(7, "span", 24);
+    \u0275\u0275elementStart(6, "div", 30)(7, "span", 31);
     \u0275\u0275text(8, "Likely issue");
     \u0275\u0275elementEnd();
-    \u0275\u0275elementStart(9, "span", 25);
+    \u0275\u0275elementStart(9, "span", 32);
     \u0275\u0275text(10);
     \u0275\u0275elementEnd()();
-    \u0275\u0275elementStart(11, "div", 23)(12, "span", 24);
+    \u0275\u0275elementStart(11, "div", 30)(12, "span", 31);
     \u0275\u0275text(13, "Next checks");
     \u0275\u0275elementEnd();
-    \u0275\u0275elementStart(14, "span", 25);
-    \u0275\u0275template(15, TieraiDashboardComponent_div_25_div_5_span_15_Template, 2, 1, "span", 26);
+    \u0275\u0275elementStart(14, "span", 32);
+    \u0275\u0275template(15, TieraiDashboardComponent_div_24_div_5_span_15_Template, 2, 1, "span", 33);
     \u0275\u0275elementEnd()();
-    \u0275\u0275elementStart(16, "div", 23)(17, "span", 24);
+    \u0275\u0275elementStart(16, "div", 30)(17, "span", 31);
     \u0275\u0275text(18, "Urgency");
     \u0275\u0275elementEnd();
-    \u0275\u0275elementStart(19, "span", 25);
+    \u0275\u0275elementStart(19, "span", 32);
     \u0275\u0275text(20);
     \u0275\u0275elementEnd()();
-    \u0275\u0275template(21, TieraiDashboardComponent_div_25_div_5_div_21_Template, 5, 1, "div", 27)(22, TieraiDashboardComponent_div_25_div_5_div_22_Template, 5, 1, "div", 27);
+    \u0275\u0275template(21, TieraiDashboardComponent_div_24_div_5_div_21_Template, 5, 1, "div", 34)(22, TieraiDashboardComponent_div_24_div_5_div_22_Template, 5, 1, "div", 34)(23, TieraiDashboardComponent_div_24_div_5_div_23_Template, 5, 1, "div", 34)(24, TieraiDashboardComponent_div_24_div_5_div_24_Template, 5, 1, "div", 34)(25, TieraiDashboardComponent_div_24_div_5_div_25_Template, 5, 1, "div", 34)(26, TieraiDashboardComponent_div_24_div_5_div_26_Template, 5, 1, "div", 34);
     \u0275\u0275elementEnd();
   }
   if (rf & 2) {
-    const msg_r1 = \u0275\u0275nextContext().$implicit;
+    const msg_r3 = \u0275\u0275nextContext().$implicit;
     \u0275\u0275advance(5);
-    \u0275\u0275textInterpolate(msg_r1.structured.current_state);
+    \u0275\u0275textInterpolate(msg_r3.structured.current_state);
     \u0275\u0275advance(5);
-    \u0275\u0275textInterpolate(msg_r1.structured.likely_issue);
+    \u0275\u0275textInterpolate(msg_r3.structured.likely_issue);
     \u0275\u0275advance(5);
-    \u0275\u0275property("ngForOf", msg_r1.structured.next_checks);
+    \u0275\u0275property("ngForOf", msg_r3.structured.next_checks);
     \u0275\u0275advance(5);
-    \u0275\u0275textInterpolate(msg_r1.structured.urgency);
+    \u0275\u0275textInterpolate(msg_r3.structured.urgency);
     \u0275\u0275advance();
-    \u0275\u0275property("ngIf", msg_r1.structured.data_freshness);
+    \u0275\u0275property("ngIf", msg_r3.structured.data_freshness);
     \u0275\u0275advance();
-    \u0275\u0275property("ngIf", msg_r1.structured.note);
+    \u0275\u0275property("ngIf", msg_r3.structured.last_positive_slope_local);
+    \u0275\u0275advance();
+    \u0275\u0275property("ngIf", msg_r3.structured.requested_time_local);
+    \u0275\u0275advance();
+    \u0275\u0275property("ngIf", msg_r3.structured.requested_time_temperature !== null && msg_r3.structured.requested_time_temperature !== void 0);
+    \u0275\u0275advance();
+    \u0275\u0275property("ngIf", msg_r3.structured.requested_time_humidity !== null && msg_r3.structured.requested_time_humidity !== void 0);
+    \u0275\u0275advance();
+    \u0275\u0275property("ngIf", msg_r3.structured.note);
   }
 }
-function TieraiDashboardComponent_div_25_Template(rf, ctx) {
+function TieraiDashboardComponent_div_24_Template(rf, ctx) {
   if (rf & 1) {
-    \u0275\u0275elementStart(0, "div", 17)(1, "div", 18);
+    \u0275\u0275elementStart(0, "div", 24)(1, "div", 25);
     \u0275\u0275text(2);
     \u0275\u0275pipe(3, "date");
     \u0275\u0275elementEnd();
-    \u0275\u0275template(4, TieraiDashboardComponent_div_25_div_4_Template, 2, 1, "div", 19)(5, TieraiDashboardComponent_div_25_div_5_Template, 23, 6, "div", 20);
+    \u0275\u0275template(4, TieraiDashboardComponent_div_24_div_4_Template, 2, 1, "div", 26)(5, TieraiDashboardComponent_div_24_div_5_Template, 27, 10, "div", 27);
     \u0275\u0275elementEnd();
   }
   if (rf & 2) {
-    const msg_r1 = ctx.$implicit;
-    \u0275\u0275classProp("user", msg_r1.role === "user");
+    const msg_r3 = ctx.$implicit;
+    \u0275\u0275classProp("user", msg_r3.role === "user");
     \u0275\u0275advance(2);
-    \u0275\u0275textInterpolate2("", msg_r1.role, " | ", \u0275\u0275pipeBind2(3, 6, msg_r1.ts, "shortTime"), "");
+    \u0275\u0275textInterpolate2("", msg_r3.role, " | ", \u0275\u0275pipeBind2(3, 6, msg_r3.ts, "shortTime"), "");
     \u0275\u0275advance(2);
-    \u0275\u0275property("ngIf", !msg_r1.structured);
+    \u0275\u0275property("ngIf", !msg_r3.structured);
     \u0275\u0275advance();
-    \u0275\u0275property("ngIf", msg_r1.structured);
+    \u0275\u0275property("ngIf", msg_r3.structured);
   }
 }
-function TieraiDashboardComponent_span_29_Template(rf, ctx) {
+function TieraiDashboardComponent_span_28_Template(rf, ctx) {
   if (rf & 1) {
     \u0275\u0275elementStart(0, "span");
     \u0275\u0275text(1, "Send");
     \u0275\u0275elementEnd();
   }
 }
-function TieraiDashboardComponent_span_30_Template(rf, ctx) {
+function TieraiDashboardComponent_span_29_Template(rf, ctx) {
   if (rf & 1) {
     \u0275\u0275elementStart(0, "span");
     \u0275\u0275text(1, "Thinking...");
     \u0275\u0275elementEnd();
   }
 }
+function TieraiDashboardComponent_button_31_Template(rf, ctx) {
+  if (rf & 1) {
+    const _r5 = \u0275\u0275getCurrentView();
+    \u0275\u0275elementStart(0, "button", 36);
+    \u0275\u0275listener("click", function TieraiDashboardComponent_button_31_Template_button_click_0_listener() {
+      const prompt_r6 = \u0275\u0275restoreView(_r5).$implicit;
+      const ctx_r1 = \u0275\u0275nextContext();
+      return \u0275\u0275resetView(ctx_r1.applyPrompt(prompt_r6));
+    });
+    \u0275\u0275text(1);
+    \u0275\u0275elementEnd();
+  }
+  if (rf & 2) {
+    const prompt_r6 = ctx.$implicit;
+    const ctx_r1 = \u0275\u0275nextContext();
+    \u0275\u0275property("disabled", ctx_r1.loading());
+    \u0275\u0275advance();
+    \u0275\u0275textInterpolate1(" ", prompt_r6, " ");
+  }
+}
 var TieraiDashboardComponent = class _TieraiDashboardComponent {
   constructor() {
     this.chatService = inject(ChatService);
+    this.sanitizer = inject(DomSanitizer);
+    this.bottomThresholdPx = 48;
+    this.stickToBottom = true;
+    this.forceNextScroll = false;
     this.deviceId = signal("servexl/edgeblr01");
     this.inputText = signal("");
     this.loading = signal(false);
@@ -41933,7 +42184,23 @@ var TieraiDashboardComponent = class _TieraiDashboardComponent {
       }
     ]);
     this.localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    this.grafanaUrlRaw = window.__TIERAI_GRAFANA_URL__?.trim() || "";
+    this.grafanaEmbedUrl = this.grafanaUrlRaw && /^https?:\/\//i.test(this.grafanaUrlRaw) ? this.sanitizer.bypassSecurityTrustResourceUrl(this.grafanaUrlRaw) : null;
+    this.examplePrompts = [
+      "What is the current state of this device?",
+      "Did temperature exceed 40 C in the last hour?",
+      "What was temperature at 2:45 AM EST yesterday?",
+      "List the last 5 telemetry readings."
+    ];
     this.canSend = computed(() => this.inputText().trim().length > 0 && !this.loading());
+    effect(() => {
+      this.messages();
+      this.loading();
+      if (this.forceNextScroll || this.stickToBottom) {
+        this.forceNextScroll = false;
+        this.scheduleScrollToBottom();
+      }
+    });
   }
   shouldIncludeTelemetry(userText) {
     const text = userText.toLowerCase();
@@ -41964,6 +42231,7 @@ var TieraiDashboardComponent = class _TieraiDashboardComponent {
     if (!text || this.loading()) {
       return;
     }
+    this.forceNextScroll = true;
     this.messages.update((m) => [...m, { role: "user", content: text, ts: (/* @__PURE__ */ new Date()).toISOString() }]);
     this.inputText.set("");
     this.loading.set(true);
@@ -41998,63 +42266,113 @@ var TieraiDashboardComponent = class _TieraiDashboardComponent {
       this.send();
     }
   }
+  onMessagesScroll() {
+    this.stickToBottom = this.isNearBottom();
+  }
+  applyPrompt(prompt) {
+    if (this.loading()) {
+      return;
+    }
+    this.inputText.set(prompt);
+  }
+  scheduleScrollToBottom() {
+    setTimeout(() => this.scrollToBottom(), 0);
+  }
+  scrollToBottom() {
+    const el = this.messagesContainer?.nativeElement;
+    if (!el) {
+      return;
+    }
+    el.scrollTop = el.scrollHeight;
+    this.stickToBottom = true;
+  }
+  isNearBottom() {
+    const el = this.messagesContainer?.nativeElement;
+    if (!el) {
+      return true;
+    }
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    return distanceFromBottom <= this.bottomThresholdPx;
+  }
   static {
     this.\u0275fac = function TieraiDashboardComponent_Factory(__ngFactoryType__) {
       return new (__ngFactoryType__ || _TieraiDashboardComponent)();
     };
   }
   static {
-    this.\u0275cmp = /* @__PURE__ */ \u0275\u0275defineComponent({ type: _TieraiDashboardComponent, selectors: [["app-tierai-dashboard"]], standalone: true, features: [\u0275\u0275StandaloneFeature], decls: 31, vars: 6, consts: [[1, "page"], [1, "topbar"], [1, "brand"], [1, "device-chip"], [3, "ngModelChange", "ngModel"], [1, "grid"], [1, "panel", "metrics"], [1, "sub"], [1, "placeholder"], [1, "pulse"], [1, "panel", "chat"], [1, "messages"], ["class", "message", 3, "user", 4, "ngFor", "ngForOf"], [1, "composer"], ["placeholder", "Ask: Is this device at risk? What should I check next?", 3, "ngModelChange", "keydown", "ngModel"], [3, "click", "disabled"], [4, "ngIf"], [1, "message"], [1, "meta"], ["class", "content", 4, "ngIf"], ["class", "content structured", 4, "ngIf"], [1, "content"], [1, "content", "structured"], [1, "row"], [1, "label"], [1, "value"], ["class", "chip", 4, "ngFor", "ngForOf"], ["class", "row", 4, "ngIf"], [1, "chip"]], template: function TieraiDashboardComponent_Template(rf, ctx) {
+    this.\u0275cmp = /* @__PURE__ */ \u0275\u0275defineComponent({ type: _TieraiDashboardComponent, selectors: [["app-tierai-dashboard"]], viewQuery: function TieraiDashboardComponent_Query(rf, ctx) {
       if (rf & 1) {
-        \u0275\u0275elementStart(0, "div", 0)(1, "header", 1)(2, "div", 2)(3, "h1");
+        \u0275\u0275viewQuery(_c0, 5);
+      }
+      if (rf & 2) {
+        let _t;
+        \u0275\u0275queryRefresh(_t = \u0275\u0275loadQuery()) && (ctx.messagesContainer = _t.first);
+      }
+    }, standalone: true, features: [\u0275\u0275StandaloneFeature], decls: 32, vars: 11, consts: [["messagesContainer", ""], [1, "page"], [1, "topbar"], [1, "brand"], [1, "device-chip"], [3, "ngModelChange", "ngModel"], [1, "grid"], [1, "panel", "metrics"], ["class", "sub", 4, "ngIf"], ["class", "grafana-frame", "title", "Grafana telemetry dashboard", 3, "src", 4, "ngIf"], ["class", "placeholder", 4, "ngIf"], [1, "panel", "chat"], [1, "messages", 3, "scroll"], ["class", "message", 3, "user", 4, "ngFor", "ngForOf"], [1, "composer"], ["placeholder", "Ask: What was temperature at 2:30 AM on 2026-02-23?", 3, "ngModelChange", "keydown", "ngModel"], [3, "click", "disabled"], [4, "ngIf"], [1, "examples"], ["type", "button", "class", "example-chip", 3, "disabled", "click", 4, "ngFor", "ngForOf"], [1, "sub"], ["title", "Grafana telemetry dashboard", 1, "grafana-frame", 3, "src"], [1, "placeholder"], [1, "pulse"], [1, "message"], [1, "meta"], ["class", "content", 4, "ngIf"], ["class", "content structured", 4, "ngIf"], [1, "content"], [1, "content", "structured"], [1, "row"], [1, "label"], [1, "value"], ["class", "chip", 4, "ngFor", "ngForOf"], ["class", "row", 4, "ngIf"], [1, "chip"], ["type", "button", 1, "example-chip", 3, "click", "disabled"]], template: function TieraiDashboardComponent_Template(rf, ctx) {
+      if (rf & 1) {
+        const _r1 = \u0275\u0275getCurrentView();
+        \u0275\u0275elementStart(0, "div", 1)(1, "header", 2)(2, "div", 3)(3, "h1");
         \u0275\u0275text(4, "TierAI Command");
         \u0275\u0275elementEnd();
         \u0275\u0275elementStart(5, "p");
         \u0275\u0275text(6, "Telemetry intelligence cockpit");
         \u0275\u0275elementEnd()();
-        \u0275\u0275elementStart(7, "div", 3)(8, "span");
+        \u0275\u0275elementStart(7, "div", 4)(8, "span");
         \u0275\u0275text(9, "Device");
         \u0275\u0275elementEnd();
-        \u0275\u0275elementStart(10, "input", 4);
+        \u0275\u0275elementStart(10, "input", 5);
         \u0275\u0275listener("ngModelChange", function TieraiDashboardComponent_Template_input_ngModelChange_10_listener($event) {
-          return ctx.deviceId.set($event);
+          \u0275\u0275restoreView(_r1);
+          return \u0275\u0275resetView(ctx.deviceId.set($event));
         });
         \u0275\u0275elementEnd()()();
-        \u0275\u0275elementStart(11, "section", 5)(12, "article", 6)(13, "h2");
+        \u0275\u0275elementStart(11, "section", 6)(12, "article", 7)(13, "h2");
         \u0275\u0275text(14, "Operations Dashboard");
         \u0275\u0275elementEnd();
-        \u0275\u0275elementStart(15, "p", 7);
-        \u0275\u0275text(16, "Grafana embed placeholder. Wire your panel URL later.");
+        \u0275\u0275template(15, TieraiDashboardComponent_p_15_Template, 2, 0, "p", 8)(16, TieraiDashboardComponent_p_16_Template, 5, 0, "p", 8)(17, TieraiDashboardComponent_iframe_17_Template, 1, 1, "iframe", 9)(18, TieraiDashboardComponent_div_18_Template, 4, 0, "div", 10);
         \u0275\u0275elementEnd();
-        \u0275\u0275elementStart(17, "div", 8);
-        \u0275\u0275element(18, "div", 9);
-        \u0275\u0275elementStart(19, "span");
-        \u0275\u0275text(20, "Grafana panel integration point");
-        \u0275\u0275elementEnd()()();
-        \u0275\u0275elementStart(21, "article", 10)(22, "h2");
-        \u0275\u0275text(23, "Ops Copilot");
+        \u0275\u0275elementStart(19, "article", 11)(20, "h2");
+        \u0275\u0275text(21, "Ops Copilot");
         \u0275\u0275elementEnd();
-        \u0275\u0275elementStart(24, "div", 11);
-        \u0275\u0275template(25, TieraiDashboardComponent_div_25_Template, 6, 9, "div", 12);
+        \u0275\u0275elementStart(22, "div", 12, 0);
+        \u0275\u0275listener("scroll", function TieraiDashboardComponent_Template_div_scroll_22_listener() {
+          \u0275\u0275restoreView(_r1);
+          return \u0275\u0275resetView(ctx.onMessagesScroll());
+        });
+        \u0275\u0275template(24, TieraiDashboardComponent_div_24_Template, 6, 9, "div", 13);
         \u0275\u0275elementEnd();
-        \u0275\u0275elementStart(26, "div", 13)(27, "textarea", 14);
-        \u0275\u0275listener("ngModelChange", function TieraiDashboardComponent_Template_textarea_ngModelChange_27_listener($event) {
-          return ctx.inputText.set($event);
-        })("keydown", function TieraiDashboardComponent_Template_textarea_keydown_27_listener($event) {
-          return ctx.onComposerKeydown($event);
+        \u0275\u0275elementStart(25, "div", 14)(26, "textarea", 15);
+        \u0275\u0275listener("ngModelChange", function TieraiDashboardComponent_Template_textarea_ngModelChange_26_listener($event) {
+          \u0275\u0275restoreView(_r1);
+          return \u0275\u0275resetView(ctx.inputText.set($event));
+        })("keydown", function TieraiDashboardComponent_Template_textarea_keydown_26_listener($event) {
+          \u0275\u0275restoreView(_r1);
+          return \u0275\u0275resetView(ctx.onComposerKeydown($event));
         });
         \u0275\u0275elementEnd();
-        \u0275\u0275elementStart(28, "button", 15);
-        \u0275\u0275listener("click", function TieraiDashboardComponent_Template_button_click_28_listener() {
-          return ctx.send();
+        \u0275\u0275elementStart(27, "button", 16);
+        \u0275\u0275listener("click", function TieraiDashboardComponent_Template_button_click_27_listener() {
+          \u0275\u0275restoreView(_r1);
+          return \u0275\u0275resetView(ctx.send());
         });
-        \u0275\u0275template(29, TieraiDashboardComponent_span_29_Template, 2, 0, "span", 16)(30, TieraiDashboardComponent_span_30_Template, 2, 0, "span", 16);
-        \u0275\u0275elementEnd()()()()();
+        \u0275\u0275template(28, TieraiDashboardComponent_span_28_Template, 2, 0, "span", 17)(29, TieraiDashboardComponent_span_29_Template, 2, 0, "span", 17);
+        \u0275\u0275elementEnd()();
+        \u0275\u0275elementStart(30, "div", 18);
+        \u0275\u0275template(31, TieraiDashboardComponent_button_31_Template, 2, 2, "button", 19);
+        \u0275\u0275elementEnd()()()();
       }
       if (rf & 2) {
         \u0275\u0275advance(10);
         \u0275\u0275property("ngModel", ctx.deviceId());
-        \u0275\u0275advance(15);
+        \u0275\u0275advance(5);
+        \u0275\u0275property("ngIf", ctx.grafanaEmbedUrl);
+        \u0275\u0275advance();
+        \u0275\u0275property("ngIf", !ctx.grafanaEmbedUrl);
+        \u0275\u0275advance();
+        \u0275\u0275property("ngIf", ctx.grafanaEmbedUrl);
+        \u0275\u0275advance();
+        \u0275\u0275property("ngIf", !ctx.grafanaEmbedUrl);
+        \u0275\u0275advance(6);
         \u0275\u0275property("ngForOf", ctx.messages());
         \u0275\u0275advance(2);
         \u0275\u0275property("ngModel", ctx.inputText());
@@ -42064,8 +42382,10 @@ var TieraiDashboardComponent = class _TieraiDashboardComponent {
         \u0275\u0275property("ngIf", !ctx.loading());
         \u0275\u0275advance();
         \u0275\u0275property("ngIf", ctx.loading());
+        \u0275\u0275advance(2);
+        \u0275\u0275property("ngForOf", ctx.examplePrompts);
       }
-    }, dependencies: [CommonModule, NgForOf, NgIf, DatePipe, FormsModule, DefaultValueAccessor, NgControlStatus, NgModel], styles: ['\n\n[_ngcontent-%COMP%]:root {\n  --bg: #08101f;\n  --bg-soft: #121f35;\n  --panel: rgba(248, 252, 255, 0.92);\n  --line: rgba(135, 169, 255, 0.23);\n  --text: #10203a;\n  --muted: #567094;\n  --accent: #47d7ac;\n  --accent-2: #59a6ff;\n}\n.page[_ngcontent-%COMP%] {\n  min-height: 100vh;\n  background:\n    radial-gradient(\n      circle at 80% 0%,\n      rgba(81, 140, 255, 0.18),\n      transparent 40%),\n    radial-gradient(\n      circle at 20% 100%,\n      rgba(71, 215, 172, 0.1),\n      transparent 35%),\n    linear-gradient(\n      165deg,\n      #edf3fb 0%,\n      #dfeaf7 100%);\n  color: var(--text);\n  padding: 28px;\n  font-family:\n    "Space Grotesk",\n    "Segoe UI",\n    sans-serif;\n}\n.topbar[_ngcontent-%COMP%] {\n  display: flex;\n  justify-content: space-between;\n  align-items: flex-end;\n  margin-bottom: 20px;\n}\n.brand[_ngcontent-%COMP%]   h1[_ngcontent-%COMP%] {\n  margin: 0;\n  font-size: 32px;\n  letter-spacing: 0.5px;\n}\n.brand[_ngcontent-%COMP%]   p[_ngcontent-%COMP%] {\n  margin: 4px 0 0;\n  color: var(--muted);\n}\n.device-chip[_ngcontent-%COMP%] {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n.device-chip[_ngcontent-%COMP%]   span[_ngcontent-%COMP%] {\n  color: var(--muted);\n  font-size: 12px;\n  text-transform: uppercase;\n}\n.device-chip[_ngcontent-%COMP%]   input[_ngcontent-%COMP%] {\n  background: var(--panel);\n  border: 1px solid var(--line);\n  color: var(--text);\n  padding: 10px 12px;\n  border-radius: 10px;\n  min-width: 220px;\n}\n.grid[_ngcontent-%COMP%] {\n  display: grid;\n  grid-template-columns: 1.2fr 1fr;\n  gap: 18px;\n}\n.panel[_ngcontent-%COMP%] {\n  border: 1px solid var(--line);\n  background: var(--panel);\n  border-radius: 16px;\n  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);\n  padding: 18px;\n}\n.panel[_ngcontent-%COMP%]   h2[_ngcontent-%COMP%] {\n  margin: 0;\n}\n.sub[_ngcontent-%COMP%] {\n  margin: 6px 0 14px;\n  color: var(--muted);\n}\n.placeholder[_ngcontent-%COMP%] {\n  height: 360px;\n  border: 1px dashed var(--line);\n  border-radius: 14px;\n  display: grid;\n  place-items: center;\n  position: relative;\n  overflow: hidden;\n  color: var(--muted);\n}\n.pulse[_ngcontent-%COMP%] {\n  width: 220px;\n  height: 220px;\n  border-radius: 999px;\n  background:\n    radial-gradient(\n      circle,\n      rgba(89, 166, 255, 0.32),\n      transparent 64%);\n  animation: _ngcontent-%COMP%_breathe 2.8s ease-in-out infinite;\n}\n.messages[_ngcontent-%COMP%] {\n  border: 1px solid var(--line);\n  border-radius: 12px;\n  height: 390px;\n  overflow: auto;\n  padding: 10px;\n  background: rgba(255, 255, 255, 0.8);\n}\n.message[_ngcontent-%COMP%] {\n  margin-bottom: 12px;\n  max-width: 90%;\n}\n.message.user[_ngcontent-%COMP%] {\n  margin-left: auto;\n  text-align: right;\n}\n.meta[_ngcontent-%COMP%] {\n  font-size: 11px;\n  color: #4b6488;\n  margin-bottom: 4px;\n}\n.content[_ngcontent-%COMP%] {\n  display: inline-block;\n  border: 1px solid var(--line);\n  padding: 10px 12px;\n  border-radius: 10px;\n  background: #eaf3ff;\n  color: #10203a;\n  line-height: 1.4;\n}\n.content.structured[_ngcontent-%COMP%] {\n  display: grid;\n  gap: 8px;\n  width: 100%;\n}\n.row[_ngcontent-%COMP%] {\n  display: grid;\n  grid-template-columns: 120px 1fr;\n  gap: 8px;\n  align-items: start;\n}\n.label[_ngcontent-%COMP%] {\n  font-size: 12px;\n  color: #4b6488;\n  text-transform: uppercase;\n  letter-spacing: 0.6px;\n}\n.value[_ngcontent-%COMP%] {\n  font-size: 14px;\n}\n.chip[_ngcontent-%COMP%] {\n  display: inline-block;\n  margin-right: 6px;\n  margin-bottom: 4px;\n  padding: 4px 8px;\n  border-radius: 999px;\n  background: rgba(89, 166, 255, 0.22);\n  border: 1px solid rgba(89, 166, 255, 0.3);\n  font-size: 12px;\n}\n.message.user[_ngcontent-%COMP%]   .content[_ngcontent-%COMP%] {\n  background:\n    linear-gradient(\n      130deg,\n      rgba(71, 215, 172, 0.24),\n      rgba(89, 166, 255, 0.28));\n  color: #10203a;\n}\n.composer[_ngcontent-%COMP%] {\n  margin-top: 12px;\n  display: grid;\n  grid-template-columns: 1fr auto;\n  gap: 8px;\n}\ntextarea[_ngcontent-%COMP%] {\n  height: 78px;\n  resize: none;\n  background: rgba(255, 255, 255, 0.94);\n  border: 1px solid var(--line);\n  color: #10203a;\n  border-radius: 12px;\n  padding: 10px 12px;\n  font-family: inherit;\n}\nbutton[_ngcontent-%COMP%] {\n  align-self: end;\n  border: none;\n  border-radius: 12px;\n  padding: 12px 16px;\n  color: #001221;\n  background:\n    linear-gradient(\n      135deg,\n      var(--accent),\n      var(--accent-2));\n  font-weight: 700;\n  cursor: pointer;\n}\nbutton[_ngcontent-%COMP%]:disabled {\n  opacity: 0.65;\n  cursor: not-allowed;\n}\n@keyframes _ngcontent-%COMP%_breathe {\n  0%, 100% {\n    transform: scale(0.88);\n    opacity: 0.65;\n  }\n  50% {\n    transform: scale(1.02);\n    opacity: 1;\n  }\n}\n@media (max-width: 1080px) {\n  .grid[_ngcontent-%COMP%] {\n    grid-template-columns: 1fr;\n  }\n}\n/*# sourceMappingURL=tierai-dashboard.component.css.map */'] });
+    }, dependencies: [CommonModule, NgForOf, NgIf, DatePipe, FormsModule, DefaultValueAccessor, NgControlStatus, NgModel], styles: ['\n\n[_ngcontent-%COMP%]:root {\n  --bg: #08101f;\n  --bg-soft: #121f35;\n  --panel: rgba(248, 252, 255, 0.92);\n  --line: rgba(135, 169, 255, 0.23);\n  --text: #10203a;\n  --muted: #567094;\n  --accent: #47d7ac;\n  --accent-2: #59a6ff;\n}\n.page[_ngcontent-%COMP%] {\n  min-height: 100vh;\n  background:\n    radial-gradient(\n      circle at 80% 0%,\n      rgba(81, 140, 255, 0.18),\n      transparent 40%),\n    radial-gradient(\n      circle at 20% 100%,\n      rgba(71, 215, 172, 0.1),\n      transparent 35%),\n    linear-gradient(\n      165deg,\n      #edf3fb 0%,\n      #dfeaf7 100%);\n  color: var(--text);\n  padding: 28px;\n  font-family:\n    "Space Grotesk",\n    "Segoe UI",\n    sans-serif;\n}\n.topbar[_ngcontent-%COMP%] {\n  display: flex;\n  justify-content: space-between;\n  align-items: flex-end;\n  margin-bottom: 20px;\n}\n.brand[_ngcontent-%COMP%]   h1[_ngcontent-%COMP%] {\n  margin: 0;\n  font-size: 32px;\n  letter-spacing: 0.5px;\n}\n.brand[_ngcontent-%COMP%]   p[_ngcontent-%COMP%] {\n  margin: 4px 0 0;\n  color: var(--muted);\n}\n.device-chip[_ngcontent-%COMP%] {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n.device-chip[_ngcontent-%COMP%]   span[_ngcontent-%COMP%] {\n  color: var(--muted);\n  font-size: 12px;\n  text-transform: uppercase;\n}\n.device-chip[_ngcontent-%COMP%]   input[_ngcontent-%COMP%] {\n  background: var(--panel);\n  border: 1px solid var(--line);\n  color: var(--text);\n  padding: 10px 12px;\n  border-radius: 10px;\n  min-width: 220px;\n}\n.grid[_ngcontent-%COMP%] {\n  display: grid;\n  grid-template-columns: 1.2fr 1fr;\n  gap: 18px;\n}\n.panel[_ngcontent-%COMP%] {\n  border: 1px solid var(--line);\n  background: var(--panel);\n  border-radius: 16px;\n  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);\n  padding: 18px;\n}\n.panel[_ngcontent-%COMP%]   h2[_ngcontent-%COMP%] {\n  margin: 0;\n}\n.sub[_ngcontent-%COMP%] {\n  margin: 6px 0 14px;\n  color: var(--muted);\n}\n.placeholder[_ngcontent-%COMP%] {\n  height: 360px;\n  border: 1px dashed var(--line);\n  border-radius: 14px;\n  display: grid;\n  place-items: center;\n  position: relative;\n  overflow: hidden;\n  color: var(--muted);\n}\n.grafana-frame[_ngcontent-%COMP%] {\n  width: 100%;\n  height: 360px;\n  border: 1px solid var(--line);\n  border-radius: 14px;\n  background: #f7fbff;\n}\n.pulse[_ngcontent-%COMP%] {\n  width: 220px;\n  height: 220px;\n  border-radius: 999px;\n  background:\n    radial-gradient(\n      circle,\n      rgba(89, 166, 255, 0.32),\n      transparent 64%);\n  animation: _ngcontent-%COMP%_breathe 2.8s ease-in-out infinite;\n}\n.messages[_ngcontent-%COMP%] {\n  border: 1px solid var(--line);\n  border-radius: 12px;\n  height: 390px;\n  overflow: auto;\n  padding: 10px;\n  background: rgba(255, 255, 255, 0.8);\n}\n.message[_ngcontent-%COMP%] {\n  margin-bottom: 12px;\n  max-width: 90%;\n}\n.message.user[_ngcontent-%COMP%] {\n  margin-left: auto;\n  text-align: right;\n}\n.meta[_ngcontent-%COMP%] {\n  font-size: 11px;\n  color: #4b6488;\n  margin-bottom: 4px;\n}\n.content[_ngcontent-%COMP%] {\n  display: inline-block;\n  border: 1px solid var(--line);\n  padding: 10px 12px;\n  border-radius: 10px;\n  background: #eaf3ff;\n  color: #10203a;\n  line-height: 1.4;\n}\n.content.structured[_ngcontent-%COMP%] {\n  display: grid;\n  gap: 8px;\n  width: 100%;\n}\n.row[_ngcontent-%COMP%] {\n  display: grid;\n  grid-template-columns: 120px 1fr;\n  gap: 8px;\n  align-items: start;\n}\n.label[_ngcontent-%COMP%] {\n  font-size: 12px;\n  color: #4b6488;\n  text-transform: uppercase;\n  letter-spacing: 0.6px;\n}\n.value[_ngcontent-%COMP%] {\n  font-size: 14px;\n}\n.chip[_ngcontent-%COMP%] {\n  display: inline-block;\n  margin-right: 6px;\n  margin-bottom: 4px;\n  padding: 4px 8px;\n  border-radius: 999px;\n  background: rgba(89, 166, 255, 0.22);\n  border: 1px solid rgba(89, 166, 255, 0.3);\n  font-size: 12px;\n}\n.message.user[_ngcontent-%COMP%]   .content[_ngcontent-%COMP%] {\n  background:\n    linear-gradient(\n      130deg,\n      rgba(71, 215, 172, 0.24),\n      rgba(89, 166, 255, 0.28));\n  color: #10203a;\n}\n.composer[_ngcontent-%COMP%] {\n  margin-top: 12px;\n  display: grid;\n  grid-template-columns: 1fr auto;\n  gap: 8px;\n}\n.examples[_ngcontent-%COMP%] {\n  margin-top: 10px;\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n}\n.examples-label[_ngcontent-%COMP%] {\n  font-size: 12px;\n  color: #4b6488;\n  text-transform: uppercase;\n  letter-spacing: 0.5px;\n  margin-right: 2px;\n}\n.example-chip[_ngcontent-%COMP%] {\n  border: 1px solid rgba(89, 166, 255, 0.35);\n  background: rgba(255, 255, 255, 0.75);\n  color: #1b3d66;\n  border-radius: 999px;\n  padding: 6px 10px;\n  font-size: 12px;\n  font-weight: 600;\n  cursor: pointer;\n}\n.example-chip[_ngcontent-%COMP%]:hover:not(:disabled) {\n  background: rgba(89, 166, 255, 0.18);\n}\ntextarea[_ngcontent-%COMP%] {\n  height: 78px;\n  resize: none;\n  background: rgba(255, 255, 255, 0.94);\n  border: 1px solid var(--line);\n  color: #10203a;\n  border-radius: 12px;\n  padding: 10px 12px;\n  font-family: inherit;\n}\nbutton[_ngcontent-%COMP%] {\n  align-self: end;\n  border: none;\n  border-radius: 12px;\n  padding: 12px 16px;\n  color: #001221;\n  background:\n    linear-gradient(\n      135deg,\n      var(--accent),\n      var(--accent-2));\n  font-weight: 700;\n  cursor: pointer;\n}\nbutton[_ngcontent-%COMP%]:disabled {\n  opacity: 0.65;\n  cursor: not-allowed;\n}\n@keyframes _ngcontent-%COMP%_breathe {\n  0%, 100% {\n    transform: scale(0.88);\n    opacity: 0.65;\n  }\n  50% {\n    transform: scale(1.02);\n    opacity: 1;\n  }\n}\n@media (max-width: 1080px) {\n  .grid[_ngcontent-%COMP%] {\n    grid-template-columns: 1fr;\n  }\n}\n/*# sourceMappingURL=tierai-dashboard.component.css.map */'] });
   }
 };
 (() => {

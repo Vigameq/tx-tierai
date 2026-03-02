@@ -12,3 +12,15 @@ tierai/servexl/edgeblr01/alarms
 Commands
 source ~/Downloads/tierai-venv/bin/activate
 python3 tierai_mqtt_mtls.py
+
+SELECT
+  topic(1) AS tenant,
+  topic(2) AS gateway_id,
+  concat(topic(1), '/', topic(2)) AS device_id,
+  timestamp() AS iot_ingest_ms,
+  ts,
+  get(readings, 0).value AS temp,
+  get(readings, 0).unit  AS unit_temp,
+  get(readings, 1).value AS humidity,
+  get(readings, 1).unit  AS unit_humidity
+FROM 'tierai/+/+/telemetry'

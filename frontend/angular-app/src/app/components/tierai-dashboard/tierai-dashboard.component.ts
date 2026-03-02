@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, ViewChild, computed, effect, inject, signal } from '@angular/core';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
 import { catchError, finalize, of } from 'rxjs';
 import { ChatMessage } from '../../models/chat.models';
@@ -14,6 +15,7 @@ import { ChatService } from '../../services/chat.service';
 })
 export class TieraiDashboardComponent {
   private readonly chatService = inject(ChatService);
+  private readonly sanitizer = inject(DomSanitizer);
   @ViewChild('messagesContainer') private messagesContainer?: ElementRef<HTMLDivElement>;
   private readonly bottomThresholdPx = 48;
   private stickToBottom = true;
@@ -30,6 +32,12 @@ export class TieraiDashboardComponent {
     },
   ]);
   readonly localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  readonly grafanaUrlRaw =
+    (window as { __TIERAI_GRAFANA_URL__?: string }).__TIERAI_GRAFANA_URL__?.trim() || '';
+  readonly grafanaEmbedUrl: SafeResourceUrl | null =
+    this.grafanaUrlRaw && /^https?:\/\//i.test(this.grafanaUrlRaw)
+      ? this.sanitizer.bypassSecurityTrustResourceUrl(this.grafanaUrlRaw)
+      : null;
   readonly examplePrompts = [
     'What is the current state of this device?',
     'Did temperature exceed 40 C in the last hour?',

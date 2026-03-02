@@ -13,8 +13,15 @@
   <section class="grid">
     <article class="panel metrics">
       <h2>Operations Dashboard</h2>
-      <p class="sub">Grafana embed placeholder. Wire your panel URL later.</p>
-      <div class="placeholder">
+      <p class="sub" *ngIf="grafanaEmbedUrl">Live Grafana panel</p>
+      <p class="sub" *ngIf="!grafanaEmbedUrl">Set <code>window.__TIERAI_GRAFANA_URL__</code> to embed Grafana.</p>
+      <iframe
+        *ngIf="grafanaEmbedUrl"
+        class="grafana-frame"
+        [src]="grafanaEmbedUrl"
+        title="Grafana telemetry dashboard"
+      ></iframe>
+      <div class="placeholder" *ngIf="!grafanaEmbedUrl">
         <div class="pulse"></div>
         <span>Grafana panel integration point</span>
       </div>

@@ -159,10 +159,16 @@ class TierAIIoTSim:
             print(f"📍 STATE → {TOPIC_STATE} retain={retain} payload={payload}")
 
     def publish_telemetry(self, epoch: int, temp: float, hum: float) -> None:
+        device_id = f"{TENANT}/{GATEWAY_ID}"
         payload = {
             "tenant": TENANT,
             "gateway_id": GATEWAY_ID,
+            "device_id": device_id,
             "ts": epoch,  # epoch seconds (handy for SiteWise mapping)
+            "temp": temp,
+            "humidity": hum,
+            "unit_temp": "degC",
+            "unit_humidity": "RH",
             "readings": [
                 {"name": "Temp", "value": temp, "unit": "degC"},
                 {"name": "Humidity", "value": hum, "unit": "RH"},

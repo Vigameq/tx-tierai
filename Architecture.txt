@@ -24,3 +24,27 @@ SELECT
   get(readings, 1).value AS humidity,
   get(readings, 1).unit  AS unit_humidity
 FROM 'tierai/+/+/telemetry'
+
+----
+
+SELECT
+  topic(1) AS tenant,
+  topic(2) AS gateway_id,
+  concat(topic(1), '/', topic(2)) AS device_id,
+  floor(timestamp()/1000) AS ts,
+  get(readings, 0).value AS temp,
+  get(readings, 0).unit  AS unit_temp,
+  get(readings, 1).value AS humidity,
+  get(readings, 1).unit  AS unit_humidity
+FROM 'tierai/+/+/telemetry'
+
+----
+
+SELECT
+  'servexl/edgeblr01' AS device_id,
+  31.23 AS temp,
+  65.45 AS humidity,
+  floor(timestamp()/1000) AS ts
+FROM 'tierai/+/+/telemetry'
+
+----

@@ -42202,30 +42202,6 @@ var TieraiDashboardComponent = class _TieraiDashboardComponent {
       }
     });
   }
-  shouldIncludeTelemetry(userText) {
-    const text = userText.toLowerCase();
-    const telemetryKeywords = [
-      "readings",
-      "raw",
-      "recent values",
-      "latest values",
-      "last 5",
-      "last five",
-      "last ",
-      "when",
-      "rose",
-      "rise",
-      "hour",
-      "minute",
-      "timeline",
-      "time series",
-      "history"
-    ];
-    const metricKeywords = ["temp", "temperature", "humidity", "value", "values"];
-    const hasTelemetryIntent = telemetryKeywords.some((k) => text.includes(k));
-    const hasMetricIntent = metricKeywords.some((k) => text.includes(k));
-    return hasTelemetryIntent && hasMetricIntent;
-  }
   send() {
     const text = this.inputText().trim();
     if (!text || this.loading()) {
@@ -42235,11 +42211,10 @@ var TieraiDashboardComponent = class _TieraiDashboardComponent {
     this.messages.update((m) => [...m, { role: "user", content: text, ts: (/* @__PURE__ */ new Date()).toISOString() }]);
     this.inputText.set("");
     this.loading.set(true);
-    const includeTelemetry = this.shouldIncludeTelemetry(text);
     this.chatService.chat({
       device_id: this.deviceId(),
       message: text,
-      context_only: !includeTelemetry,
+      context_only: false,
       local_timezone: this.localTimezone
     }).pipe(catchError((err) => {
       const message = err?.error?.detail || "Chat request failed. Check API URL and backend logs.";

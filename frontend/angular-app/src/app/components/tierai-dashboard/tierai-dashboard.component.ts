@@ -58,31 +58,6 @@ export class TieraiDashboardComponent {
     });
   }
 
-  private shouldIncludeTelemetry(userText: string): boolean {
-    const text = userText.toLowerCase();
-    const telemetryKeywords = [
-      'readings',
-      'raw',
-      'recent values',
-      'latest values',
-      'last 5',
-      'last five',
-      'last ',
-      'when',
-      'rose',
-      'rise',
-      'hour',
-      'minute',
-      'timeline',
-      'time series',
-      'history',
-    ];
-    const metricKeywords = ['temp', 'temperature', 'humidity', 'value', 'values'];
-    const hasTelemetryIntent = telemetryKeywords.some((k) => text.includes(k));
-    const hasMetricIntent = metricKeywords.some((k) => text.includes(k));
-    return hasTelemetryIntent && hasMetricIntent;
-  }
-
   send(): void {
     const text = this.inputText().trim();
     if (!text || this.loading()) {
@@ -94,12 +69,11 @@ export class TieraiDashboardComponent {
     this.inputText.set('');
     this.loading.set(true);
 
-    const includeTelemetry = this.shouldIncludeTelemetry(text);
     this.chatService
       .chat({
         device_id: this.deviceId(),
         message: text,
-        context_only: !includeTelemetry,
+        context_only: false,
         local_timezone: this.localTimezone,
       })
       .pipe(

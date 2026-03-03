@@ -444,6 +444,45 @@ function normalizeTelemetryRow(row, timeZone) {
   };
 }
 
+function inferLastNReadingsRequest(message) {
+  const text = String(message || "");
+  const m = text.match(
+    /\b(?:last|latest|recent)\s+(\d+)\s+(?:telemetry\s+)?(?:readings?|values?|data\s*points?)\b/i
+  );
+  if (!m) return null;
+  const nValue = parseNum(m[1], 0);
+  if (!nValue) return null;
+  return Math.min(Math.max(nValue, 1), 20);
+}
+
+function buildLastNReadings(rows, nCount, timeZone) {
+  const normalized = (rows || []).map((r) => normalizeTelemetryRow(r, timeZone));
+  const latest = normalized.slice(-nCount).reverse();
+  return latest.map((r, idx) => ({
+    index: idx + 1,
+    ts: r.ts,
+    ts_local: r.ts_local,
+    temp: r.temp,
+    humidity: r.humidity,
+    unit_temp: r.unit_temp || "degC",
+    unit_humidity: r.unit_humidity || "RH",
+  }));
+}
+
+function structuredAnswerToText(structured) {
+  const checks = Array.isArray(structured?.next_checks)
+    ? structured.next_checks.join("\n")
+    : String(structured?.next_checks || "");
+  return [
+    `Current state\n${structured?.current_state || ""}`,
+    `Likely issue\n${structured?.likely_issue || ""}`,
+    `Next checks\n${checks}`,
+    `Urgency\n${structured?.urgency || ""}`,
+    `Data freshness\n${structured?.data_freshness || ""}`,
+    `Note\n${structured?.note || ""}`,
+  ].join("\n\n");
+}
+
 async function queryTelemetryRange(deviceId, startTs, endTs, limit = MAX_QUERY_ROWS) {
   const safeLimit = Math.min(Math.max(1, parseNum(limit, MAX_QUERY_ROWS)), MAX_QUERY_ROWS);
   const items = [];
@@ -666,11 +705,59 @@ exports.chat = onRequest(
         const hasTelemetry = telemetryRows.length > 0 || Boolean(requestedPoint?.nearest);
         const deterministic = computeDeterministicSignals(contextData);
         const slopeInfo = computeLastPositiveSlope(telemetryRows, localTimezone);
+        const lastNRequest = inferLastNReadingsRequest(message);
 
         if ((contextOnly && !hasContext) || (!contextOnly && !hasContext && !hasTelemetry)) {
           res
             .status(404)
             .json({ detail: `No telemetry/context found for device_id=${deviceId}.` });
+          return;
+        }
+
+        if (lastNRequest) {
+          const lastReadings = buildLastNReadings(telemetryRows, lastNRequest, localTimezone);
+          const readingLines = lastReadings.map(
+            (r) =>
+              `${r.index}. ${r.ts_local}: Temp ${r.temp ?? "NA"} ${r.unit_temp}, Humidity ${r.humidity ?? "NA"} ${r.unit_humidity}`
+          );
+          const structuredAnswer = {
+            current_state: readingLines.length
+              ? `Latest ${readingLines.length} telemetry readings for ${deviceId}:\n${readingLines.join("\n")}`
+              : `No telemetry readings available for ${deviceId}.`,
+            likely_issue: readingLines.length
+              ? "No immediate issue identified from the requested readings."
+              : "No raw telemetry found in the queried window.",
+            next_checks: readingLines.length
+              ? ["Ask for trend analysis or threshold breaches on these readings."]
+              : ["Verify IoT ingestion and DynamoDB writes for this device."],
+            urgency: deterministic.deterministic_urgency,
+            data_freshness: deterministic.data_freshness,
+            note:
+              readingLines.length < lastNRequest
+                ? `Requested last ${lastNRequest} readings, but only ${readingLines.length} were available.`
+                : `Showing last ${readingLines.length} readings from raw telemetry.`,
+            last_positive_slope_local: slopeInfo.last_positive_slope_local || null,
+          };
+
+          res.status(200).json({
+            answer: structuredAnswerToText(structuredAnswer),
+            structured_answer: structuredAnswer,
+            device_id: deviceId,
+            mode: contextOnly ? "context_only" : "context_plus_telemetry",
+            deterministic: {
+              ...deterministic,
+              ...slopeInfo,
+              requested_point: requestedPoint,
+              query_ts_used: queryTs || null,
+              query_ts_source: explicitQueryTs
+                ? "request.query_ts"
+                : parsedQueryTs
+                  ? "parsed_from_message"
+                  : null,
+              last_readings: lastReadings,
+            },
+            context_used: contextData,
+          });
           return;
         }
 

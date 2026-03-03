@@ -142,6 +142,8 @@
   background: #eaf3ff;
   color: #10203a;
   line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .content.structured {
@@ -166,6 +168,7 @@
 
 .value {
   font-size: 14px;
+  white-space: pre-wrap;
 }
 
 .chip {

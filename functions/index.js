@@ -640,7 +640,7 @@ exports.chat = onRequest(
         const body = parseBody(req);
         const deviceId = body.device_id;
         const message = body.message;
-        const contextOnly = body.context_only !== false;
+        const contextOnly = body.context_only === true;
         const explicitQueryTs = Number(body.query_ts || 0);
         const localTimezone =
           typeof body.local_timezone === "string" && body.local_timezone.trim()

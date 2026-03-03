@@ -48,3 +48,14 @@ SELECT
 FROM 'tierai/+/+/telemetry'
 
 ----
+
+SELECT
+  topic(2) AS tenant,
+  topic(3) AS gateway_id,
+  concat(topic(2), '/', topic(3)) AS device_id,
+  floor(timestamp()/1000) AS ts,
+  get(readings, 0).value AS temp,
+  get(readings, 0).unit  AS unit_temp,
+  get(readings, 1).value AS humidity,
+  get(readings, 1).unit  AS unit_humidity
+FROM 'tierai/+/+/telemetry'

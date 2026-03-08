@@ -63,10 +63,16 @@ ALARM_PROBABILITY = 0.03  # ~3% chance each second (tune as you like)
 # Sim ranges
 TEMP_RANGE_C = (20.0, 45.0)
 HUM_RANGE_RH = (20.0, 85.0)
+PRESSURE_RANGE_HPA = (980.0, 1035.0)
+AIRFLOW_RANGE_MPS = (0.1, 5.0)
+GPS_LAT_RANGE = (12.960000, 12.980000)
+GPS_LON_RANGE = (77.580000, 77.620000)
+WATER_LEAK_PROBABILITY = 0.01
 
 # Alarm thresholds (example)
 TEMP_HIGH_C = 40.0
 HUM_HIGH_RH = 80.0
+AIRFLOW_LOW_MPS = 0.30
 
 # Enable verbose MQTT logs
 ENABLE_MQTT_LOGS = True
@@ -158,8 +164,23 @@ class TierAIIoTSim:
         else:
             print(f"📍 STATE → {TOPIC_STATE} retain={retain} payload={payload}")
 
-    def publish_telemetry(self, epoch: int, temp: float, hum: float) -> None:
+    def publish_telemetry(
+        self,
+        epoch: int,
+        temp: float,
+        hum: float,
+        pressure_hpa: float,
+        airflow_mps: float,
+        water_leakage: bool,
+        gps_lat: float,
+        gps_lon: float,
+    ) -> None:
         device_id = f"{TENANT}/{GATEWAY_ID}"
+        status_code = 0
+        if temp >= TEMP_HIGH_C or hum >= HUM_HIGH_RH or airflow_mps <= AIRFLOW_LOW_MPS or water_leakage:
+            status_code = 1
+        if water_leakage or temp >= (TEMP_HIGH_C + 2):
+            status_code = 2
         payload = {
             "tenant": TENANT,
             "gateway_id": GATEWAY_ID,
@@ -167,11 +188,27 @@ class TierAIIoTSim:
             "ts": epoch,  # epoch seconds (handy for SiteWise mapping)
             "temp": temp,
             "humidity": hum,
+            "pressure": pressure_hpa,
+            "airflow": airflow_mps,
+            "water_leakage": water_leakage,
+            "gps_lat": gps_lat,
+            "gps_lon": gps_lon,
+            "gps": {"lat": gps_lat, "lon": gps_lon},
+            "status_code": status_code,
             "unit_temp": "degC",
             "unit_humidity": "RH",
+            "unit_pressure": "hPa",
+            "unit_airflow": "m/s",
             "readings": [
+                # Keep first two indexes unchanged for existing IoT SQL:
+                # get(readings, 0).value => temp, get(readings, 1).value => humidity
                 {"name": "Temp", "value": temp, "unit": "degC"},
                 {"name": "Humidity", "value": hum, "unit": "RH"},
+                {"name": "Pressure", "value": pressure_hpa, "unit": "hPa"},
+                {"name": "Airflow", "value": airflow_mps, "unit": "m/s"},
+                {"name": "WaterLeakage", "value": 1 if water_leakage else 0, "unit": "bool"},
+                {"name": "GPSLat", "value": gps_lat, "unit": "deg"},
+                {"name": "GPSLon", "value": gps_lon, "unit": "deg"},
             ],
         }
         info = self.client.publish(TOPIC_TELEMETRY, json.dumps(payload), qos=1)
@@ -225,7 +262,21 @@ class TierAIIoTSim:
                 # Simulated telemetry
                 temp = round(random.uniform(*TEMP_RANGE_C), 2)
                 hum = round(random.uniform(*HUM_RANGE_RH), 2)
-                self.publish_telemetry(epoch=epoch, temp=temp, hum=hum)
+                pressure_hpa = round(random.uniform(*PRESSURE_RANGE_HPA), 2)
+                airflow_mps = round(random.uniform(*AIRFLOW_RANGE_MPS), 2)
+                water_leakage = random.random() < WATER_LEAK_PROBABILITY
+                gps_lat = round(random.uniform(*GPS_LAT_RANGE), 6)
+                gps_lon = round(random.uniform(*GPS_LON_RANGE), 6)
+                self.publish_telemetry(
+                    epoch=epoch,
+                    temp=temp,
+                    hum=hum,
+                    pressure_hpa=pressure_hpa,
+                    airflow_mps=airflow_mps,
+                    water_leakage=water_leakage,
+                    gps_lat=gps_lat,
+                    gps_lon=gps_lon,
+                )
 
                 # Optional: emit alarms based on thresholds or random probability
                 if temp >= TEMP_HIGH_C:
@@ -243,6 +294,22 @@ class TierAIIoTSim:
                         severity="WARN",
                         message=f"High humidity detected: {hum} RH",
                         details={"humidity": hum, "threshold": HUM_HIGH_RH},
+                    )
+                if airflow_mps <= AIRFLOW_LOW_MPS:
+                    self.publish_alarm(
+                        epoch=epoch,
+                        alarm_type="AIRFLOW_LOW",
+                        severity="WARN",
+                        message=f"Low airflow detected: {airflow_mps} m/s",
+                        details={"airflow": airflow_mps, "threshold_min": AIRFLOW_LOW_MPS},
+                    )
+                if water_leakage:
+                    self.publish_alarm(
+                        epoch=epoch,
+                        alarm_type="WATER_LEAKAGE",
+                        severity="CRITICAL",
+                        message="Water leakage detected",
+                        details={"water_leakage": True},
                     )
                 if random.random() < ALARM_PROBABILITY:
                     self.publish_alarm(
